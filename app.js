@@ -14,6 +14,7 @@ let state = {
     
     // Interaction states
     isDraggingVp: false,
+    isDraggingGrip: null,
     drawingStep: 0, 
     isMovingEntity: false,
     startX: 0, 
@@ -136,6 +137,14 @@ function updatePropertyPanel() {
     if (['beam', 'arc', 'parabola'].includes(ent.type)) {
         beamRotCont.classList.remove('hidden');
         document.getElementById('prop-beam-rot-angle').value = 0;
+        
+        // Show coordinates using the new input fields (assume origin is 0,0 where we want, but grid handles absolute numbers - converting back to typical grid coordinates if needed, here just raw / gridSize for unit consistency)
+        if (document.getElementById('prop-beam-p1-x')) {
+            document.getElementById('prop-beam-p1-x').value = (ent.p1.x / state.gridSize).toFixed(2);
+            document.getElementById('prop-beam-p1-y').value = (-ent.p1.y / state.gridSize).toFixed(2); // Canvas Y is inverted
+            document.getElementById('prop-beam-p2-x').value = (ent.p2.x / state.gridSize).toFixed(2);
+            document.getElementById('prop-beam-p2-y').value = (-ent.p2.y / state.gridSize).toFixed(2);
+        }
     }
 
     if (['dimension', 'angdim'].includes(ent.type)) {
@@ -283,6 +292,26 @@ document.getElementById('prop-length').addEventListener('input', (e) => {
                 if (id === 'prop-text-bold') ent.textBold = e.target.checked;
                 requestRedraw();
             }
+        }
+    });
+});
+
+['prop-beam-p1-x', 'prop-beam-p1-y', 'prop-beam-p2-x', 'prop-beam-p2-y'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', (e) => {
+        if (!state.selectedEntityId) return;
+        const ent = state.entities.find(el => el.id === state.selectedEntityId);
+        if (ent && ['beam', 'arc', 'parabola'].includes(ent.type)) {
+            const val = parseFloat(e.target.value);
+            if (isNaN(val)) return;
+            
+            if (id === 'prop-beam-p1-x') ent.p1.x = val * state.gridSize;
+            if (id === 'prop-beam-p1-y') ent.p1.y = -val * state.gridSize; // Y axis is inverted in canvas vs user expectation typically
+            if (id === 'prop-beam-p2-x') ent.p2.x = val * state.gridSize;
+            if (id === 'prop-beam-p2-y') ent.p2.y = -val * state.gridSize;
+            
+            requestRedraw();
         }
     });
 });
@@ -1471,12 +1500,12 @@ const EntityLogic = {
             ctx.lineWidth = styleSettings[ent.type].weight;
             ctx.stroke();
 
-            // Arrow head
+            // Arrow head (pointing right to follow the clockwise arc)
             ctx.beginPath();
             ctx.moveTo(0, -25);
-            ctx.lineTo(-8, -33);
+            ctx.lineTo(-8, -32);
             ctx.moveTo(0, -25);
-            ctx.lineTo(8, -33);
+            ctx.lineTo(-8, -18);
             ctx.stroke();
             ctx.restore();
 
@@ -2008,6 +2037,28 @@ function render() {
         // Draw temporary entity in preview mode
         EntityLogic[state.tempEntity.type].draw(ctx, state.tempEntity, false, true);
     }
+    
+    // Draw grips for selected entity
+    if (state.selectedEntityId) {
+        const selEnt = state.entities.find(e => e.id === state.selectedEntityId);
+        if (selEnt && selEnt.p1 && selEnt.p2) {
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#3b82f6';
+            ctx.lineWidth = 1.5 / state.vw.z;
+            const r = 4 / state.vw.z;
+            
+            const drawGrip = (p) => {
+                ctx.beginPath();
+                ctx.rect(p.x - r, p.y - r, r*2, r*2);
+                ctx.fill();
+                ctx.stroke();
+            };
+            
+            drawGrip(selEnt.p1);
+            drawGrip(selEnt.p2);
+            if (selEnt.p3) drawGrip(selEnt.p3);
+        }
+    }
 
     ctx.globalAlpha = 1.0;
     ctx.restore();
@@ -2088,6 +2139,25 @@ canvas.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
 
     if (state.tool === 'select') {
+        const handleRadius = 6 / state.vw.z;
+        let gripClicked = null;
+        
+        // Check grips of currently selected entity first
+        if (state.selectedEntityId) {
+            const selEnt = state.entities.find(e => e.id === state.selectedEntityId);
+            if (selEnt && selEnt.p1 && selEnt.p2) {
+                if (dist(wPt, selEnt.p1) < handleRadius) gripClicked = 'p1';
+                else if (dist(wPt, selEnt.p2) < handleRadius) gripClicked = 'p2';
+                else if (selEnt.p3 && dist(wPt, selEnt.p3) < handleRadius) gripClicked = 'p3';
+            }
+        }
+        
+        if (gripClicked) {
+            state.isDraggingGrip = gripClicked;
+            saveState();
+            return;
+        }
+
         let clicked = null;
         for (let i = state.entities.length - 1; i >= 0; i--) {
             if (EntityLogic[state.entities[i].type].hitTest(wPt, state.entities[i])) {
@@ -2171,7 +2241,39 @@ canvas.addEventListener('mousedown', (e) => {
                 document.querySelector(`.tool-btn[data-tool="select"]`).click();
             }
         } else if (state.drawingStep === 2 && ['dimension', 'arc', 'parabola', 'angdim'].includes(state.tool)) {
-            state.tempEntity.p3 = state.tool === 'angdim' ? snap(wPt) : wPt;
+            if (state.tool === 'dimension') {
+                let snappedPt = snap(wPt);
+                if (snappedPt.x === wPt.x && snappedPt.y === wPt.y) {
+                    let minDistDim = Infinity;
+                    for (const ent of state.entities) {
+                        if (ent.type === 'dimension' && ent.id !== state.tempEntity.id) {
+                            const dx = ent.p2.x - ent.p1.x;
+                            const dy = ent.p2.y - ent.p1.y;
+                            const len = Math.hypot(dx, dy);
+                            if (len === 0) continue;
+                            const nx = -dy / len;
+                            const ny = dx / len;
+                            let offset = 40;
+                            if (ent.p3) offset = (ent.p3.x - ent.p1.x) * nx + (ent.p3.y - ent.p1.y) * ny;
+                            const dp1 = { x: ent.p1.x + offset * nx, y: ent.p1.y + offset * ny };
+                            const dp2 = { x: ent.p2.x + offset * nx, y: ent.p2.y + offset * ny };
+                            
+                            const l2 = (dp2.x - dp1.x)**2 + (dp2.y - dp1.y)**2;
+                            if (l2 === 0) continue;
+                            const t = ((wPt.x - dp1.x) * (dp2.x - dp1.x) + (wPt.y - dp1.y) * (dp2.y - dp1.y)) / l2;
+                            const projPt = { x: dp1.x + t * (dp2.x - dp1.x), y: dp1.y + t * (dp2.y - dp1.y) };
+                            const d = Math.hypot(wPt.x - projPt.x, wPt.y - projPt.y);
+                            if (d < 15 / state.vw.z && d < minDistDim) {
+                                minDistDim = d;
+                                snappedPt = projPt;
+                            }
+                        }
+                    }
+                }
+                state.tempEntity.p3 = snappedPt;
+            } else {
+                state.tempEntity.p3 = state.tool === 'angdim' ? snap(wPt) : wPt;
+            }
             state.entities.push({...state.tempEntity});
             state.selectedEntityId = state.tempEntity.id;
             state.tempEntity = null;
@@ -2235,6 +2337,30 @@ window.addEventListener('mousemove', (e) => {
     const wPt = s2w({ x: screenX, y: screenY });
     state.cursorPt = snap(wPt);
 
+    if (state.isDraggingGrip && state.selectedEntityId) {
+        const ent = state.entities.find(e => e.id === state.selectedEntityId);
+        if (ent) {
+            const oldEntities = state.entities;
+            state.entities = state.entities.filter(e => e.id !== state.selectedEntityId);
+            
+            state.cursorPt = snap(wPt);
+            
+            state.entities = oldEntities; // restore
+            
+            ent[state.isDraggingGrip].x = state.cursorPt.x;
+            ent[state.isDraggingGrip].y = state.cursorPt.y;
+            
+            // In case of force, update angle visually as well if p1/p2 moves
+            if (ent.type === 'force') {
+               ent.angle = Math.atan2(ent.p2.y - ent.p1.y, ent.p2.x - ent.p1.x);
+            }
+            
+            updatePropertyPanel();
+            requestRedraw();
+        }
+        return;
+    }
+
     if (state.isMovingEntity && state.selectedEntityId) {
         // Exclude the currently moving entity from snap consideration temporarily
         const ent = state.entities.find(e => e.id === state.selectedEntityId);
@@ -2275,7 +2401,43 @@ window.addEventListener('mousemove', (e) => {
         }
         requestRedraw();
     } else if (state.drawingStep === 2 && state.tempEntity && ['dimension', 'arc', 'parabola', 'angdim'].includes(state.tempEntity.type)) {
-        state.tempEntity.p3 = state.tempEntity.type === 'angdim' ? snap(wPt) : wPt; // Snap p3 for angdim, free drag otherwise
+        if (state.tempEntity.type === 'dimension') {
+            let snappedPt = snap(wPt); // First try standard snap (endpoints, etc.)
+            if (snappedPt.x === wPt.x && snappedPt.y === wPt.y) {
+                // If not snapped to geometry, try to align with existing dimension lines
+                let minDistDim = Infinity;
+                for (const ent of state.entities) {
+                    if (ent.type === 'dimension' && ent.id !== state.tempEntity.id) {
+                        const dx = ent.p2.x - ent.p1.x;
+                        const dy = ent.p2.y - ent.p1.y;
+                        const len = Math.hypot(dx, dy);
+                        if (len === 0) continue;
+                        const nx = -dy / len;
+                        const ny = dx / len;
+                        let offset = 40;
+                        if (ent.p3) {
+                            offset = (ent.p3.x - ent.p1.x) * nx + (ent.p3.y - ent.p1.y) * ny;
+                        }
+                        const dp1 = { x: ent.p1.x + offset * nx, y: ent.p1.y + offset * ny };
+                        const dp2 = { x: ent.p2.x + offset * nx, y: ent.p2.y + offset * ny };
+                        
+                        const l2 = (dp2.x - dp1.x)**2 + (dp2.y - dp1.y)**2;
+                        if (l2 === 0) continue;
+                        const t = ((wPt.x - dp1.x) * (dp2.x - dp1.x) + (wPt.y - dp1.y) * (dp2.y - dp1.y)) / l2;
+                        const projPt = { x: dp1.x + t * (dp2.x - dp1.x), y: dp1.y + t * (dp2.y - dp1.y) };
+                        const d = Math.hypot(wPt.x - projPt.x, wPt.y - projPt.y);
+                        
+                        if (d < 15 / state.vw.z && d < minDistDim) {
+                            minDistDim = d;
+                            snappedPt = projPt;
+                        }
+                    }
+                }
+            }
+            state.tempEntity.p3 = snappedPt;
+        } else {
+            state.tempEntity.p3 = state.tempEntity.type === 'angdim' ? snap(wPt) : wPt; // Snap p3 for angdim, free drag otherwise
+        }
         
         // For angdim, we also track radius using magnitude parameter loosely
         if (state.tempEntity.type === 'angdim') {
@@ -2326,6 +2488,9 @@ window.addEventListener('mouseup', (e) => {
     }
     if (state.isMovingEntity) {
         state.isMovingEntity = false;
+    }
+    if (state.isDraggingGrip) {
+        state.isDraggingGrip = null;
     }
 });
 
