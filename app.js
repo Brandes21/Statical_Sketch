@@ -2242,34 +2242,41 @@ canvas.addEventListener('mousedown', (e) => {
             }
         } else if (state.drawingStep === 2 && ['dimension', 'arc', 'parabola', 'angdim'].includes(state.tool)) {
             if (state.tool === 'dimension') {
-                let snappedPt = snap(wPt);
-                if (snappedPt.x === wPt.x && snappedPt.y === wPt.y) {
-                    let minDistDim = Infinity;
-                    for (const ent of state.entities) {
-                        if (ent.type === 'dimension' && ent.id !== state.tempEntity.id) {
-                            const dx = ent.p2.x - ent.p1.x;
-                            const dy = ent.p2.y - ent.p1.y;
-                            const len = Math.hypot(dx, dy);
-                            if (len === 0) continue;
-                            const nx = -dy / len;
-                            const ny = dx / len;
-                            let offset = 40;
-                            if (ent.p3) offset = (ent.p3.x - ent.p1.x) * nx + (ent.p3.y - ent.p1.y) * ny;
-                            const dp1 = { x: ent.p1.x + offset * nx, y: ent.p1.y + offset * ny };
-                            const dp2 = { x: ent.p2.x + offset * nx, y: ent.p2.y + offset * ny };
-                            
-                            const l2 = (dp2.x - dp1.x)**2 + (dp2.y - dp1.y)**2;
-                            if (l2 === 0) continue;
-                            const t = ((wPt.x - dp1.x) * (dp2.x - dp1.x) + (wPt.y - dp1.y) * (dp2.y - dp1.y)) / l2;
-                            const projPt = { x: dp1.x + t * (dp2.x - dp1.x), y: dp1.y + t * (dp2.y - dp1.y) };
-                            const d = Math.hypot(wPt.x - projPt.x, wPt.y - projPt.y);
-                            if (d < 15 / state.vw.z && d < minDistDim) {
-                                minDistDim = d;
-                                snappedPt = projPt;
-                            }
+                let snappedPt = null;
+                let minDistDim = Infinity;
+                
+                // Prioritize aligning with an existing dimension line
+                for (const ent of state.entities) {
+                    if (ent.type === 'dimension' && ent.id !== state.tempEntity.id) {
+                        const dx = ent.p2.x - ent.p1.x;
+                        const dy = ent.p2.y - ent.p1.y;
+                        const len = Math.hypot(dx, dy);
+                        if (len === 0) continue;
+                        const nx = -dy / len;
+                        const ny = dx / len;
+                        let offset = 40;
+                        if (ent.p3) offset = (ent.p3.x - ent.p1.x) * nx + (ent.p3.y - ent.p1.y) * ny;
+                        const dp1 = { x: ent.p1.x + offset * nx, y: ent.p1.y + offset * ny };
+                        const dp2 = { x: ent.p2.x + offset * nx, y: ent.p2.y + offset * ny };
+                        
+                        const l2 = (dp2.x - dp1.x)**2 + (dp2.y - dp1.y)**2;
+                        if (l2 === 0) continue;
+                        const t = ((wPt.x - dp1.x) * (dp2.x - dp1.x) + (wPt.y - dp1.y) * (dp2.y - dp1.y)) / l2;
+                        const projPt = { x: dp1.x + t * (dp2.x - dp1.x), y: dp1.y + t * (dp2.y - dp1.y) };
+                        const d = Math.hypot(wPt.x - projPt.x, wPt.y - projPt.y);
+                        
+                        if (d < 15 / state.vw.z && d < minDistDim) {
+                            minDistDim = d;
+                            snappedPt = projPt;
                         }
                     }
                 }
+                
+                // Fall back to standard grid/node snapping if no alignment dimension is nearby
+                if (!snappedPt) {
+                    snappedPt = snap(wPt);
+                }
+                
                 state.tempEntity.p3 = snappedPt;
             } else {
                 state.tempEntity.p3 = state.tool === 'angdim' ? snap(wPt) : wPt;
@@ -2402,37 +2409,39 @@ window.addEventListener('mousemove', (e) => {
         requestRedraw();
     } else if (state.drawingStep === 2 && state.tempEntity && ['dimension', 'arc', 'parabola', 'angdim'].includes(state.tempEntity.type)) {
         if (state.tempEntity.type === 'dimension') {
-            let snappedPt = snap(wPt); // First try standard snap (endpoints, etc.)
-            if (snappedPt.x === wPt.x && snappedPt.y === wPt.y) {
-                // If not snapped to geometry, try to align with existing dimension lines
-                let minDistDim = Infinity;
-                for (const ent of state.entities) {
-                    if (ent.type === 'dimension' && ent.id !== state.tempEntity.id) {
-                        const dx = ent.p2.x - ent.p1.x;
-                        const dy = ent.p2.y - ent.p1.y;
-                        const len = Math.hypot(dx, dy);
-                        if (len === 0) continue;
-                        const nx = -dy / len;
-                        const ny = dx / len;
-                        let offset = 40;
-                        if (ent.p3) {
-                            offset = (ent.p3.x - ent.p1.x) * nx + (ent.p3.y - ent.p1.y) * ny;
-                        }
-                        const dp1 = { x: ent.p1.x + offset * nx, y: ent.p1.y + offset * ny };
-                        const dp2 = { x: ent.p2.x + offset * nx, y: ent.p2.y + offset * ny };
-                        
-                        const l2 = (dp2.x - dp1.x)**2 + (dp2.y - dp1.y)**2;
-                        if (l2 === 0) continue;
-                        const t = ((wPt.x - dp1.x) * (dp2.x - dp1.x) + (wPt.y - dp1.y) * (dp2.y - dp1.y)) / l2;
-                        const projPt = { x: dp1.x + t * (dp2.x - dp1.x), y: dp1.y + t * (dp2.y - dp1.y) };
-                        const d = Math.hypot(wPt.x - projPt.x, wPt.y - projPt.y);
-                        
-                        if (d < 15 / state.vw.z && d < minDistDim) {
-                            minDistDim = d;
-                            snappedPt = projPt;
-                        }
+            let snappedPt = null;
+            let minDistDim = Infinity;
+            
+            for (const ent of state.entities) {
+                if (ent.type === 'dimension' && ent.id !== state.tempEntity.id) {
+                    const dx = ent.p2.x - ent.p1.x;
+                    const dy = ent.p2.y - ent.p1.y;
+                    const len = Math.hypot(dx, dy);
+                    if (len === 0) continue;
+                    const nx = -dy / len;
+                    const ny = dx / len;
+                    let offset = 40;
+                    if (ent.p3) {
+                        offset = (ent.p3.x - ent.p1.x) * nx + (ent.p3.y - ent.p1.y) * ny;
+                    }
+                    const dp1 = { x: ent.p1.x + offset * nx, y: ent.p1.y + offset * ny };
+                    const dp2 = { x: ent.p2.x + offset * nx, y: ent.p2.y + offset * ny };
+                    
+                    const l2 = (dp2.x - dp1.x)**2 + (dp2.y - dp1.y)**2;
+                    if (l2 === 0) continue;
+                    const t = ((wPt.x - dp1.x) * (dp2.x - dp1.x) + (wPt.y - dp1.y) * (dp2.y - dp1.y)) / l2;
+                    const projPt = { x: dp1.x + t * (dp2.x - dp1.x), y: dp1.y + t * (dp2.y - dp1.y) };
+                    const d = Math.hypot(wPt.x - projPt.x, wPt.y - projPt.y);
+                    
+                    if (d < 15 / state.vw.z && d < minDistDim) {
+                        minDistDim = d;
+                        snappedPt = projPt;
                     }
                 }
+            }
+            
+            if (!snappedPt) {
+                snappedPt = snap(wPt);
             }
             state.tempEntity.p3 = snappedPt;
         } else {
