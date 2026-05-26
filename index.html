@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Statics Sketcher Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Custom scrollbar for sidebar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+    </style>
+</head>
+<body class="bg-slate-50 h-screen flex flex-col overflow-hidden text-slate-800 font-sans">
+    
+    <!-- Top Navigation Bar -->
+    <header class="bg-white border-b border-slate-200 h-14 flex items-center justify-between px-4 shadow-sm z-10 shrink-0">
+        <div class="flex items-center gap-3">
+            <i data-lucide="compass" class="text-blue-600"></i>
+            <h1 class="font-bold text-lg tracking-tight text-slate-700">Statics Sketcher</h1>
+        </div>
+        <div class="flex items-center gap-2">
+            <button id="btn-settings" class="top-btn text-slate-600 hover:text-slate-800 hover:bg-slate-100" title="Settings">
+                <i data-lucide="settings" class="w-4 h-4"></i>
+                <span class="text-sm font-medium ml-1">Settings</span>
+            </button>
+            <div class="w-px h-6 bg-slate-300 mx-1"></div>
+            <button id="btn-undo" class="top-btn" title="Undo (Ctrl+Z)"><i data-lucide="undo-2" class="w-4 h-4"></i></button>
+            <button id="btn-redo" class="top-btn" title="Redo (Ctrl+Y)"><i data-lucide="redo-2" class="w-4 h-4"></i></button>
+            <div class="w-px h-6 bg-slate-300 mx-1"></div>
+            <button id="btn-export" class="top-btn text-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Export Image">
+                <i data-lucide="image-down" class="w-4 h-4"></i>
+                <span class="text-sm font-medium ml-1">Export PNG</span>
+            </button>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden relative">
+        <!-- Sidebar Tools -->
+        <aside class="bg-white border-r border-slate-200 w-32 flex flex-col gap-4 py-4 overflow-y-auto shadow-sm z-10 shrink-0">
+            
+            <!-- Actions -->
+            <div class="px-2">
+                <button class="tool-btn active w-full" data-tool="select">
+                    <i data-lucide="mouse-pointer-2"></i>
+                    <span>Select</span>
+                </button>
+            </div>
+            
+            <!-- Structure -->
+            <div class="px-2">
+                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-1 border-b border-slate-100 pb-1">1. Structure</div>
+                <div class="flex flex-col gap-1 pl-1">
+                    <button class="tool-btn w-full justify-start" data-tool="beam">
+                        <i data-lucide="minus" class="stroke-[3]"></i>
+                        <span>Beam</span>
+                    </button>
+                    <button class="tool-btn w-full justify-start" data-tool="arc">
+                        <i data-lucide="scan-line"></i>
+                        <span>Arc</span>
+                    </button>
+                    <button class="tool-btn w-full justify-start" data-tool="parabola">
+                        <i data-lucide="route"></i>
+                        <span>Parabola</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Supports -->
+            <div class="px-2">
+                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-1 border-b border-slate-100 pb-1">2. Supports</div>
+                <div class="flex flex-col gap-1 pl-1">
+                    <button class="tool-btn w-full justify-start" data-tool="pin">
+                        <i data-lucide="triangle"></i>
+                        <span>Pin</span>
+                    </button>
+                    <button class="tool-btn w-full justify-start" data-tool="roller">
+                        <i data-lucide="circle"></i>
+                        <span>Roller</span>
+                    </button>
+                    <button class="tool-btn w-full justify-start" data-tool="fixed">
+                        <i data-lucide="align-end-vertical"></i>
+                        <span>Fixed</span>
+                    </button>
+                    <button class="tool-btn w-full justify-start" data-tool="hinge">
+                        <i data-lucide="circle-dot"></i>
+                        <span>Hinge</span>
+                    </button>
+                    <button class="tool-btn w-full justify-start" data-tool="spring">
+                        <i data-lucide="activity"></i>
+                        <span>Spring</span>
+                    </button>
+                    <button class="tool-btn w-full justify-start" data-tool="rotspr">
+                        <i data-lucide="loader"></i>
+                        <span>Rot.Spr.</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Loads -->
+            <div class="px-2 pb-2">
+                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-1 border-b border-slate-100 pb-1">3. Loads</div>
+                <div class="flex flex-col gap-1 pl-1">
+                    <button class="tool-btn w-full justify-start" data-tool="force" style="color: #e74c3c;">
+                        <i data-lucide="arrow-down"></i>
+                        <span>Single load</span>
+                    </button>
+                    <button class="tool-btn w-full justify-start" data-tool="distload" style="color: #e74c3c;">
+                        <i data-lucide="trending-down"></i>
+                        <span>Dist. load</span>
+                    </button>
+                    <button class="tool-btn w-full justify-start" data-tool="moment" style="color: #e74c3c;">
+                        <i data-lucide="rotate-cw"></i>
+                        <span>Moment load</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Annotation Tools -->
+            <div class="px-2 pb-6 border-b border-slate-100">
+                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-1">Tools</div>
+                <div class="flex flex-col gap-1">
+                    <button class="tool-btn w-full" data-tool="dimension">
+                        <i data-lucide="ruler"></i>
+                        <span>Lin Dim</span>
+                    </button>
+                    <button class="tool-btn w-full" data-tool="angdim">
+                        <i data-lucide="radius"></i>
+                        <span>Ang Dim</span>
+                    </button>
+                    <button class="tool-btn w-full" data-tool="textLabel">
+                        <i data-lucide="type"></i>
+                        <span>Text</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="px-2 mt-auto">
+                <button id="btn-clear" class="tool-btn w-full text-red-600 hover:text-red-700 hover:bg-red-50">
+                    <i data-lucide="trash-2"></i>
+                    <span>Clear</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Canvas Workspace -->
+        <main class="flex-1 relative bg-[#f8fafc]" id="canvas-wrapper">
+            <canvas id="sketch-canvas" class="absolute inset-0 cursor-crosshair focus:outline-none" tabindex="0"></canvas>
+            
+            <div class="absolute bottom-4 left-4 bg-white/80 backdrop-blur px-3 py-2 rounded shadow-sm border border-slate-200 text-xs text-slate-500 pointer-events-none z-10">
+                <p><strong>Left Click</strong> to Draw / Select. <strong>Drag</strong> to move shapes.</p>
+                <p><strong>Middle Click</strong> to Pan. <strong>Scroll</strong> to Zoom.</p>
+                <p><strong>Delete</strong> to remove selected element.</p>
+            </div>
+            
+            <div id="zoom-indicator" class="absolute top-4 right-4 bg-white px-2 py-1 rounded shadow-sm border border-slate-200 text-xs text-slate-500 font-mono pointer-events-none transition-opacity duration-300 opacity-0 z-10">
+                100%
+            </div>
+
+            <!-- CAD Input Panel -->
+            <div id="cad-input-panel" class="absolute top-4 left-1/2 -translate-x-1/2 bg-white px-4 py-2 rounded shadow-lg border border-slate-200 hidden z-20 transition-all flex items-center gap-3">
+                <label id="cad-input-label" class="text-xs font-bold text-slate-500 uppercase tracking-wide">Length</label>
+                <div class="flex items-center">
+                    <input type="number" id="cad-input" class="w-20 border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" step="any" min="0">
+                    <span id="cad-input-unit" class="ml-2 text-xs text-slate-400 font-medium">m</span>
+                </div>
+                <div class="text-[10px] text-slate-400 border-l border-slate-200 pl-3 leading-tight">Press Enter <br>to fix</div>
+            </div>
+            
+            <!-- Property Panel -->
+            <div id="property-panel" class="absolute top-4 right-4 bg-white p-4 rounded-lg shadow-lg border border-slate-200 hidden w-56 z-20 transition-all">
+                <div class="flex items-center gap-2 mb-3 border-b border-slate-100 pb-2">
+                    <i data-lucide="settings-2" class="w-4 h-4 text-slate-400"></i>
+                    <h3 class="font-bold text-slate-700 text-sm">Properties: <span id="prop-type-name" class="font-medium text-blue-600">Type</span></h3>
+                </div>
+                
+                <div id="prop-distload-range-container" class="mb-3 hidden">
+                    <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Load Values</label>
+                    <div class="flex items-center space-x-2">
+                        <div class="flex-1">
+                            <span class="text-xs text-slate-400 block mb-0.5">Start (v1)</span>
+                            <input type="text" id="prop-distload-start" placeholder="10" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                        </div>
+                        <div class="flex-1">
+                            <span class="text-xs text-slate-400 block mb-0.5">End (v2)</span>
+                            <input type="text" id="prop-distload-end" placeholder="10" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                        </div>
+                    </div>
+                </div>
+
+                <div id="prop-magnitude-container" class="mb-3 hidden">
+                    <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Load Magnitude</label>
+                    <div class="flex items-center">
+                        <input type="text" id="prop-magnitude" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                    </div>
+                </div>
+                
+                <div id="prop-force-details-container" class="mb-3 hidden space-y-2">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Prefix (e.g. Py)</label>
+                        <input type="text" id="prop-force-prefix" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" placeholder="None">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Unit</label>
+                        <select id="prop-force-unit" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                            <option value="kN">kN</option>
+                            <option value="N">N</option>
+                            <option value="">(None)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="prop-perpload-container" class="mb-3 hidden">
+                    <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Perpendicular Load</label>
+                    <div class="flex items-center">
+                        <input type="text" id="prop-perpload" placeholder="0" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                        <span class="ml-2 text-xs text-slate-400 font-medium">kN/m</span>
+                    </div>
+                </div>
+
+                <div id="prop-length-container" class="mb-3 hidden">
+                    <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Length</label>
+                    <div class="flex items-center">
+                        <input type="number" id="prop-length" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" step="any" min="0">
+                        <span class="ml-2 text-xs text-slate-400 font-medium">m</span>
+                    </div>
+                </div>
+
+                <div id="prop-angle-container" class="mb-1 hidden">
+                    <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Rotation Angle</label>
+                    <div class="flex items-center">
+                        <input type="number" id="prop-angle" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" step="15">
+                        <span class="ml-2 text-xs text-slate-400 font-medium">deg</span>
+                    </div>
+                </div>
+
+                <!-- Beam Rotation -->
+                <div id="prop-beam-rotate-container" class="mb-3 hidden space-y-2 mt-4 border-t border-slate-200 pt-3">
+                    <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Rotate Element</label>
+                    <div>
+                        <span class="text-xs text-slate-400 block mb-0.5">Pivot Point</span>
+                        <select id="prop-beam-pivot" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                            <option value="p1">Start Point</option>
+                            <option value="mid">Mid Point</option>
+                            <option value="p2">End Point</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="flex-1">
+                            <span class="text-xs text-slate-400 block mb-0.5">Angle (deg)</span>
+                            <input type="number" id="prop-beam-rot-angle" value="0" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" step="15">
+                        </div>
+                        <div class="flex-none self-end">
+                            <button id="btn-prop-beam-rotate" class="bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 rounded px-3 py-1.5 text-sm font-medium transition cursor-pointer">Rotate</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dimension Properties -->
+                <div id="prop-dim-container" class="mt-2 hidden space-y-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Override Text</label>
+                        <input type="text" id="prop-dim-text" placeholder="Auto" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <label class="text-xs font-semibold text-slate-600 block cursor-pointer" for="prop-dim-units">Show Units (m)</label>
+                        <input type="checkbox" id="prop-dim-units" class="cursor-pointer rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Decimal Places</label>
+                        <input type="number" id="prop-dim-decimals" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" min="0" max="5" step="1">
+                    </div>
+                    <div class="flex items-center justify-between border-t border-slate-100 pt-2">
+                        <label class="text-xs font-semibold text-slate-600 block cursor-pointer" for="prop-dim-lines">Extension Lines</label>
+                        <input type="checkbox" id="prop-dim-lines" class="cursor-pointer rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                    </div>
+                </div>
+
+                <!-- Text Properties -->
+                <div id="prop-text-container" class="mt-2 hidden space-y-3">
+                    <div id="prop-text-content-wrapper">
+                        <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Text Content</label>
+                        <input type="text" id="prop-text-content" placeholder="Text" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="flex-1">
+                            <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Size</label>
+                            <input type="number" id="prop-text-size" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" min="8" max="72" step="1" value="16">
+                        </div>
+                        <div class="flex-none">
+                            <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Color</label>
+                            <input type="color" id="prop-text-color" class="w-full h-8 p-0 border-0 rounded cursor-pointer" value="#000000">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Font</label>
+                        <select id="prop-text-font" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                            <option value="Arial">Arial</option>
+                            <option value="sans-serif">Sans-serif</option>
+                            <option value="serif">Serif</option>
+                            <option value="monospace">Monospace</option>
+                            <option value="math">Math</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center justify-between border-t border-slate-100 pt-2">
+                        <label class="text-xs font-semibold text-slate-600 block cursor-pointer" for="prop-text-bold">Bold Text</label>
+                        <input type="checkbox" id="prop-text-bold" class="cursor-pointer rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Settings Modal -->
+    <!-- Export Modal -->
+    <div id="export-modal" class="fixed inset-0 bg-black/20 z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-lg shadow-xl border border-slate-200 w-80 overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                <h3 class="font-bold text-slate-700">Export Image</h3>
+                <button id="btn-close-export" class="text-slate-400 hover:text-slate-600">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+            <div class="p-4 space-y-4">
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="export-transparent" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                    <span class="text-sm font-medium text-slate-700">Transparent Background</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="export-rulers" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                    <span class="text-sm font-medium text-slate-700">Include Ruler Dimensions</span>
+                </label>
+                <div class="flex gap-2">
+                    <button id="btn-export-full" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-2 rounded text-sm transition">Full Canvas</button>
+                    <button id="btn-export-area" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded text-sm transition">Select Area</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="fixed inset-0 bg-black/20 z-50 flex items-center justify-center hidden overflow-y-auto">
+        <div class="bg-white rounded-lg shadow-xl border border-slate-200 w-[500px] overflow-hidden my-4">
+            <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50 sticky top-0">
+                <h3 class="font-bold text-slate-700">Settings</h3>
+                <button id="btn-close-settings" class="text-slate-400 hover:text-slate-600">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+            <div class="p-4 space-y-6">
+                <!-- Snapping -->
+                <div>
+                    <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 border-b border-slate-100 pb-1">Snapping</h4>
+                    <label class="flex items-center gap-2 cursor-pointer mb-2">
+                        <input type="checkbox" id="setting-snap-master" checked class="rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                        <span class="text-sm font-medium text-slate-700">Enable Snapping</span>
+                    </label>
+                    <div class="pl-6 space-y-2 grid grid-cols-2 gap-x-2" id="snapping-sub-options">
+                        <label class="flex items-center gap-2 cursor-pointer mt-2">
+                            <input type="checkbox" id="setting-snap-grid" checked class="rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                            <span class="text-sm text-slate-600">Snap to Grid</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="setting-snap-endpoints" checked class="rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                            <span class="text-sm text-slate-600">Endpoints</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="setting-snap-elements" checked class="rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                            <span class="text-sm text-slate-600">Element (nearest)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Appearance -->
+                <div>
+                    <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 border-b border-slate-100 pb-1 flex justify-between">
+                        <span>Appearance / Styling</span>
+                        <div class="flex items-center gap-2 font-normal normal-case text-slate-500">
+                            <span>Transparency:</span>
+                            <input type="range" id="setting-style-opacity" min="0.1" max="1.0" step="0.1" value="1.0" class="w-20">
+                        </div>
+                    </h4>
+                    
+                    <div class="flex items-center justify-start gap-6 text-xs mb-3 text-slate-600 px-1 font-medium bg-slate-50 p-2 rounded">
+                        <div class="flex items-center gap-1.5 cursor-pointer">
+                            <input type="checkbox" id="setting-show-grid" checked class="cursor-pointer">
+                            <label for="setting-show-grid" class="cursor-pointer">Show Grid</label>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <label for="setting-bg-color">Background Color:</label>
+                            <input type="color" id="setting-bg-color" value="#f8fafc" class="w-6 h-6 p-0 border-0 rounded cursor-pointer">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-6 gap-2 text-xs font-semibold text-slate-500 mb-1 text-center">
+                        <div class="col-span-1 text-left">Element</div>
+                        <div class="col-span-1">Color</div>
+                        <div class="col-span-1">Alpha</div>
+                        <div class="col-span-1">Weight</div>
+                        <div class="col-span-2 text-left pl-1">Text Size</div>
+                    </div>
+                    
+                    <div id="style-settings-container" class="space-y-3 max-h-96 overflow-y-auto pr-1">
+                        <!-- Instantiated by JS -->
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        // Initialize icons
+        lucide.createIcons();
+    </script>
+    <script src="app.js"></script>
+</body>
+</html>
