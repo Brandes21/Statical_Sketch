@@ -89,9 +89,9 @@ function updatePropertyPanel() {
         document.getElementById('prop-type-name').innerText = `Multiple Items (${state.selectedIds.length})`;
         
         const containersToHide = [
-            'prop-magnitude-container', 'prop-distload-range-container', 'prop-perpload-container',
+            'prop-magnitude-container', 'prop-distload-range-container', 'prop-loadheight-container', 'prop-perpload-container',
             'prop-angle-container', 'prop-length-container', 'prop-dim-container', 'prop-beam-rotate-container',
-            'prop-text-container', 'prop-line-container', 'prop-force-details-container', 'prop-stiffness-container'
+            'prop-text-container', 'prop-line-container', 'prop-arrow-container', 'prop-force-details-container', 'prop-stiffness-container'
         ];
         
         containersToHide.forEach(id => {
@@ -114,6 +114,7 @@ function updatePropertyPanel() {
     
     const magCont = document.getElementById('prop-magnitude-container');
     const distRangeCont = document.getElementById('prop-distload-range-container');
+    const loadHeightCont = document.getElementById('prop-loadheight-container');
     const perpLoadCont = document.getElementById('prop-perpload-container');
     const angCont = document.getElementById('prop-angle-container');
     const lenCont = document.getElementById('prop-length-container');
@@ -121,22 +122,31 @@ function updatePropertyPanel() {
     const beamRotCont = document.getElementById('prop-beam-rotate-container');
     const textCont = document.getElementById('prop-text-container');
     const lineCont = document.getElementById('prop-line-container');
+    const arrowCont = document.getElementById('prop-arrow-container');
+    const stiffnessCont = document.getElementById('prop-stiffness-container');
     
     magCont.classList.add('hidden');
     distRangeCont.classList.add('hidden');
     perpLoadCont.classList.add('hidden');
     angCont.classList.add('hidden');
     lenCont.classList.add('hidden');
+    if (loadHeightCont) loadHeightCont.classList.add('hidden');
     dimCont.classList.add('hidden');
     beamRotCont.classList.add('hidden');
     if (textCont) textCont.classList.add('hidden');
     if (lineCont) lineCont.classList.add('hidden');
+    if (arrowCont) arrowCont.classList.add('hidden');
+    if (stiffnessCont) stiffnessCont.classList.add('hidden');
     
     if (['force', 'moment', 'distload'].includes(ent.type)) {
         if (ent.type === 'distload') {
             distRangeCont.classList.remove('hidden');
+            if (loadHeightCont) loadHeightCont.classList.remove('hidden');
             document.getElementById('prop-distload-start').value = ent.startMagnitude !== undefined ? ent.startMagnitude : (ent.magnitude || '10');
             document.getElementById('prop-distload-end').value = ent.endMagnitude !== undefined ? ent.endMagnitude : (ent.magnitude || '10');
+            if (document.getElementById('prop-loadheight')) {
+                document.getElementById('prop-loadheight').value = ent.loadHeight !== undefined ? ent.loadHeight : 25;
+            }
         } else {
             magCont.classList.remove('hidden');
             document.getElementById('prop-magnitude').value = ent.magnitude || '10';
@@ -256,6 +266,18 @@ function updatePropertyPanel() {
         document.getElementById('prop-line-color').value = ent.color || '#000000';
         document.getElementById('prop-line-dashed').checked = ent.dashed || false;
     }
+
+    if (arrowCont) {
+        if (ent.type === 'arrow') {
+            arrowCont.classList.remove('hidden');
+            document.getElementById('prop-arrow-weight').value = ent.weight || 2;
+            document.getElementById('prop-arrow-color').value = ent.color || '#000000';
+            document.getElementById('prop-arrow-dashed').checked = ent.dashed || false;
+            document.getElementById('prop-arrow-scale').value = ent.arrowScale || 1.0;
+        } else {
+            arrowCont.classList.add('hidden');
+        }
+    }
 }
 
 function updateSelectedEntities(callback) {
@@ -282,6 +304,14 @@ document.getElementById('prop-distload-end').addEventListener('input', (e) => {
         ent.endMagnitude = e.target.value;
     });
 });
+
+if (document.getElementById('prop-loadheight')) {
+    document.getElementById('prop-loadheight').addEventListener('input', (e) => {
+        updateSelectedEntities(ent => {
+            ent.loadHeight = parseFloat(e.target.value) || 25;
+        });
+    });
+}
 
 document.getElementById('prop-force-prefix').addEventListener('input', (e) => {
     updateSelectedEntities(ent => {
@@ -395,6 +425,22 @@ document.getElementById('prop-length').addEventListener('input', (e) => {
                 if (id === 'prop-line-weight') ent.weight = parseFloat(e.target.value);
                 if (id === 'prop-line-color') ent.color = e.target.value;
                 if (id === 'prop-line-dashed') ent.dashed = e.target.checked;
+            }
+        });
+    });
+});
+
+['prop-arrow-weight', 'prop-arrow-color', 'prop-arrow-dashed', 'prop-arrow-scale'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const eventName = id === 'prop-arrow-color' || id === 'prop-arrow-weight' || id === 'prop-arrow-scale' ? 'input' : 'change';
+    el.addEventListener(eventName, (e) => {
+        updateSelectedEntities(ent => {
+            if (ent.type === 'arrow') {
+                if (id === 'prop-arrow-weight') ent.weight = parseFloat(e.target.value);
+                if (id === 'prop-arrow-color') ent.color = e.target.value;
+                if (id === 'prop-arrow-dashed') ent.dashed = e.target.checked;
+                if (id === 'prop-arrow-scale') ent.arrowScale = parseFloat(e.target.value);
             }
         });
     });
@@ -1365,6 +1411,36 @@ function drawTextMagnitude(ctx, text, color, x, y, options = {}) {
 
 // Entity rendering and logic functions
 const EntityLogic = {
+    arrow: {
+        draw: (ctx, ent, isSelected, isPreview) => {
+            ctx.save();
+            const headlen = 15 * (ent.arrowScale || 1.0);
+            const angle = Math.atan2(ent.p2.y - ent.p1.y, ent.p2.x - ent.p1.x);
+            
+            ctx.beginPath();
+            ctx.moveTo(ent.p1.x, ent.p1.y);
+            ctx.lineTo(ent.p2.x, ent.p2.y);
+            ctx.lineTo(ent.p2.x - headlen * Math.cos(angle - Math.PI / 6), ent.p2.y - headlen * Math.sin(angle - Math.PI / 6));
+            ctx.moveTo(ent.p2.x, ent.p2.y);
+            ctx.lineTo(ent.p2.x - headlen * Math.cos(angle + Math.PI / 6), ent.p2.y - headlen * Math.sin(angle + Math.PI / 6));
+            
+            ctx.strokeStyle = isSelected ? '#3b82f6' : (ent.color || '#000000');
+            ctx.lineWidth = isSelected ? (ent.weight || 2) + 1 : (ent.weight || 2);
+
+            if (ent.dashed) {
+                ctx.setLineDash([6, 6]);
+            }
+            if (isPreview) {
+                ctx.strokeStyle = '#94a3b8';
+                ctx.setLineDash([4, 4]);
+            }
+
+            ctx.stroke();
+            ctx.restore();
+        },
+        hitTest: (pt, ent) => distToLine(pt, ent.p1, ent.p2) < 8 / state.vw.z,
+        move: (ent, dx, dy) => { ent.p1.x += dx; ent.p1.y += dy; ent.p2.x += dx; ent.p2.y += dy; }
+    },
     line: {
         draw: (ctx, ent, isSelected, isPreview) => {
             ctx.save();
@@ -1858,8 +1934,9 @@ const EntityLogic = {
             if (len > 0) {
                 const nx = -dy / len;
                 const ny = dx / len;
-                const hStart = 25 * (ent.startMagnitude !== undefined ? parseFloat(ent.startMagnitude) / Math.max(parseFloat(ent.startMagnitude), parseFloat(ent.endMagnitude || ent.startMagnitude), 1) : 1); 
-                const hEnd = 25 * (ent.endMagnitude !== undefined ? parseFloat(ent.endMagnitude) / Math.max(parseFloat(ent.startMagnitude || 10), parseFloat(ent.endMagnitude), 1) : 1);
+                const baseHeight = ent.loadHeight !== undefined ? ent.loadHeight : 25;
+                const hStart = baseHeight * (ent.startMagnitude !== undefined ? parseFloat(ent.startMagnitude) / Math.max(parseFloat(ent.startMagnitude), parseFloat(ent.endMagnitude || ent.startMagnitude), 1) : 1); 
+                const hEnd = baseHeight * (ent.endMagnitude !== undefined ? parseFloat(ent.endMagnitude) / Math.max(parseFloat(ent.startMagnitude || 10), parseFloat(ent.endMagnitude), 1) : 1);
                 
                 ctx.beginPath();
                 ctx.moveTo(ent.p1.x - nx * hStart, ent.p1.y - ny * hStart);
@@ -2700,7 +2777,7 @@ canvas.addEventListener('mousedown', (e) => {
     }
 
     // Multi-click tools
-    if (['beam', 'arc', 'parabola', 'distload', 'dimension', 'angdim', 'line'].includes(state.tool)) {
+    if (['beam', 'arc', 'parabola', 'distload', 'dimension', 'angdim', 'line', 'arrow'].includes(state.tool)) {
         if (state.drawingStep === 0) {
             saveState();
             state.drawingStep = 1;
