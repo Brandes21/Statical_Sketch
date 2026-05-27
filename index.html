@@ -24,6 +24,14 @@
             <h1 class="font-bold text-lg tracking-tight text-slate-700">Statics Sketcher</h1>
         </div>
         <div class="flex items-center gap-2">
+            <a href="docs.html" target="_blank" class="top-btn text-slate-600 hover:text-slate-800 hover:bg-slate-100 flex items-center" title="Documentation">
+                <i data-lucide="book-open" class="w-4 h-4"></i>
+                <span class="text-sm font-medium ml-1">Docs</span>
+            </a>
+            <a href="mailto:niclasbrandt97@gmail.com?subject=Statics%20Sketcher%20Support%20%2F%20Bug%20Report" id="btn-support" class="top-btn text-slate-600 hover:text-slate-800 hover:bg-slate-100 flex items-center" title="Support / Bugs">
+                <i data-lucide="mail" class="w-4 h-4"></i>
+                <span class="text-sm font-medium ml-1">Support</span>
+            </a>
             <button id="btn-settings" class="top-btn text-slate-600 hover:text-slate-800 hover:bg-slate-100" title="Settings">
                 <i data-lucide="settings" class="w-4 h-4"></i>
                 <span class="text-sm font-medium ml-1">Settings</span>
@@ -32,6 +40,15 @@
             <button id="btn-undo" class="top-btn" title="Undo (Ctrl+Z)"><i data-lucide="undo-2" class="w-4 h-4"></i></button>
             <button id="btn-redo" class="top-btn" title="Redo (Ctrl+Y)"><i data-lucide="redo-2" class="w-4 h-4"></i></button>
             <div class="w-px h-6 bg-slate-300 mx-1"></div>
+            <button id="btn-open-proj" class="top-btn text-slate-600 hover:text-slate-800 hover:bg-slate-100" title="Open Project">
+                <i data-lucide="folder-open" class="w-4 h-4"></i>
+                <span class="text-sm font-medium ml-1">Open</span>
+            </button>
+            <button id="btn-save-proj" class="top-btn text-slate-600 hover:text-slate-800 hover:bg-slate-100" title="Save Project As">
+                <i data-lucide="save" class="w-4 h-4"></i>
+                <span class="text-sm font-medium ml-1">Save As</span>
+            </button>
+            <input type="file" id="file-open-input" accept=".json" class="hidden">
             <button id="btn-export" class="top-btn text-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Export Image">
                 <i data-lucide="image-down" class="w-4 h-4"></i>
                 <span class="text-sm font-medium ml-1">Export PNG</span>
@@ -41,7 +58,7 @@
 
     <div class="flex flex-1 overflow-hidden relative">
         <!-- Sidebar Tools -->
-        <aside class="bg-white border-r border-slate-200 w-32 flex flex-col gap-4 py-4 overflow-y-auto shadow-sm z-10 shrink-0">
+        <aside class="bg-white border-r border-slate-200 w-48 flex flex-col gap-4 py-4 overflow-y-auto shadow-sm z-10 shrink-0">
             
             <!-- Actions -->
             <div class="px-2">
@@ -54,16 +71,16 @@
             <!-- Structure -->
             <div class="px-2">
                 <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-1 border-b border-slate-100 pb-1">1. Structure</div>
-                <div class="flex flex-col gap-1 pl-1">
-                    <button class="tool-btn w-full justify-start" data-tool="beam">
+                <div class="grid grid-cols-3 gap-1">
+                    <button class="tool-btn" data-tool="beam">
                         <i data-lucide="minus" class="stroke-[3]"></i>
                         <span>Beam</span>
                     </button>
-                    <button class="tool-btn w-full justify-start" data-tool="arc">
+                    <button class="tool-btn" data-tool="arc">
                         <i data-lucide="scan-line"></i>
                         <span>Arc</span>
                     </button>
-                    <button class="tool-btn w-full justify-start" data-tool="parabola">
+                    <button class="tool-btn" data-tool="parabola">
                         <i data-lucide="route"></i>
                         <span>Parabola</span>
                     </button>
@@ -73,28 +90,28 @@
             <!-- Supports -->
             <div class="px-2">
                 <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-1 border-b border-slate-100 pb-1">2. Supports</div>
-                <div class="flex flex-col gap-1 pl-1">
-                    <button class="tool-btn w-full justify-start" data-tool="pin">
+                <div class="grid grid-cols-3 gap-1">
+                    <button class="tool-btn" data-tool="pin">
                         <i data-lucide="triangle"></i>
                         <span>Pin</span>
                     </button>
-                    <button class="tool-btn w-full justify-start" data-tool="roller">
+                    <button class="tool-btn" data-tool="roller">
                         <i data-lucide="circle"></i>
                         <span>Roller</span>
                     </button>
-                    <button class="tool-btn w-full justify-start" data-tool="fixed">
+                    <button class="tool-btn" data-tool="fixed">
                         <i data-lucide="align-end-vertical"></i>
                         <span>Fixed</span>
                     </button>
-                    <button class="tool-btn w-full justify-start" data-tool="hinge">
+                    <button class="tool-btn" data-tool="hinge">
                         <i data-lucide="circle-dot"></i>
                         <span>Hinge</span>
                     </button>
-                    <button class="tool-btn w-full justify-start" data-tool="spring">
+                    <button class="tool-btn" data-tool="spring">
                         <i data-lucide="activity"></i>
                         <span>Spring</span>
                     </button>
-                    <button class="tool-btn w-full justify-start" data-tool="rotspr">
+                    <button class="tool-btn" data-tool="rotspr">
                         <i data-lucide="loader"></i>
                         <span>Rot.Spr.</span>
                     </button>
@@ -104,43 +121,88 @@
             <!-- Loads -->
             <div class="px-2 pb-2">
                 <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-1 border-b border-slate-100 pb-1">3. Loads</div>
-                <div class="flex flex-col gap-1 pl-1">
-                    <button class="tool-btn w-full justify-start" data-tool="force" style="color: #e74c3c;">
+                <div class="grid grid-cols-3 gap-1">
+                    <button class="tool-btn" data-tool="force" style="color: #e74c3c;">
                         <i data-lucide="arrow-down"></i>
                         <span>Single load</span>
                     </button>
-                    <button class="tool-btn w-full justify-start" data-tool="distload" style="color: #e74c3c;">
+                    <button class="tool-btn" data-tool="distload" style="color: #e74c3c;">
                         <i data-lucide="trending-down"></i>
                         <span>Dist. load</span>
                     </button>
-                    <button class="tool-btn w-full justify-start" data-tool="moment" style="color: #e74c3c;">
+                    <button class="tool-btn" data-tool="moment" style="color: #e74c3c;">
                         <i data-lucide="rotate-cw"></i>
                         <span>Moment load</span>
                     </button>
                 </div>
             </div>
 
+            <!-- Analysis -->
+            <div class="px-2 pb-2">
+                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-1 border-b border-slate-100 pb-1">4. Analysis</div>
+                <div class="grid grid-cols-2 gap-1">
+                    <button class="tool-btn text-indigo-600 bg-indigo-50 border-indigo-100 hover:bg-indigo-100" data-tool="influence">
+                        <i data-lucide="trending-up"></i>
+                        <span>Influence Line</span>
+                    </button>
+                    <button id="btn-solve" class="tool-btn text-white bg-blue-600 hover:bg-blue-700 hover:text-white border-transparent">
+                        <i data-lucide="play"></i>
+                        <span>FE Solve</span>
+                    </button>
+                </div>
+            </div>
+
             <!-- Annotation Tools -->
-            <div class="px-2 pb-6 border-b border-slate-100">
-                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-1">Tools</div>
-                <div class="flex flex-col gap-1">
-                    <button class="tool-btn w-full" data-tool="dimension">
-                        <i data-lucide="ruler"></i>
-                        <span>Lin Dim</span>
+            <div class="px-2 pb-4 border-b border-slate-100">
+                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-1">Annotations</div>
+                <div class="grid grid-cols-2 gap-1">
+                    <button class="tool-btn" data-tool="line">
+                        <i data-lucide="minus"></i>
+                        <span>Line</span>
                     </button>
-                    <button class="tool-btn w-full" data-tool="angdim">
-                        <i data-lucide="radius"></i>
-                        <span>Ang Dim</span>
-                    </button>
-                    <button class="tool-btn w-full" data-tool="textLabel">
+                    <button class="tool-btn" data-tool="textLabel">
                         <i data-lucide="type"></i>
                         <span>Text</span>
                     </button>
                 </div>
             </div>
 
-            <div class="px-2 mt-auto">
-                <button id="btn-clear" class="tool-btn w-full text-red-600 hover:text-red-700 hover:bg-red-50">
+            <!-- Dimension Tools -->
+            <div class="px-2 pb-4 border-b border-slate-100">
+                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-1">Dimensions</div>
+                <div class="grid grid-cols-2 gap-1">
+                    <button class="tool-btn" data-tool="dimension">
+                        <i data-lucide="ruler"></i>
+                        <span>Linear</span>
+                    </button>
+                    <button class="tool-btn" data-tool="angdim">
+                        <i data-lucide="radius"></i>
+                        <span>Angular</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Visibility -->
+            <div class="px-2 pb-4 pl-3">
+                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Visibility</div>
+                <div class="flex flex-col gap-2 text-xs text-slate-600">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="vis-structure" checked class="rounded border-slate-300 text-blue-600">
+                        <span>Structure</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="vis-supports" checked class="rounded border-slate-300 text-blue-600">
+                        <span>Supports</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="vis-loads" checked class="rounded border-slate-300 text-blue-600">
+                        <span>Loads</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="px-2 mt-auto grid grid-cols-1 gap-2">
+                <button id="btn-clear" class="tool-btn text-red-600 hover:text-red-700 hover:bg-red-50">
                     <i data-lucide="trash-2"></i>
                     <span>Clear</span>
                 </button>
@@ -237,9 +299,34 @@
                         <span class="ml-2 text-xs text-slate-400 font-medium">deg</span>
                     </div>
                 </div>
+                
+                <div id="prop-stiffness-container" class="mb-3 hidden mt-3 space-y-2">
+                    <div>
+                        <label id="prop-stiffness-label" class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Axial Stiffness (k)</label>
+                        <div class="flex items-center">
+                            <input type="number" id="prop-stiffness" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" step="any" min="0" value="1000">
+                            <span class="ml-2 text-xs text-slate-400 font-medium prop-stiffness-unit">kN/m</span>
+                        </div>
+                    </div>
+                    <div id="prop-trans-stiffness-wrapper">
+                        <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Transversal Stiffness (k)</label>
+                        <div class="flex items-center">
+                            <input type="number" id="prop-stiffness-trans" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" step="any" min="0" value="0">
+                            <span class="ml-2 text-xs text-slate-400 font-medium">kN/m</span>
+                        </div>
+                    </div>
+                </div>
 
                 <!-- Beam Rotation -->
                 <div id="prop-beam-rotate-container" class="mb-3 hidden space-y-2 mt-4 border-t border-slate-200 pt-3">
+                    <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Analysis Element Type</label>
+                    <div class="mb-3">
+                        <select id="prop-beam-type" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                            <option value="beam">Beam (Rigid Frame)</option>
+                            <option value="truss">Truss (Axial Only)</option>
+                        </select>
+                    </div>
+
                     <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Adjust Coordinates</label>
                     <div class="flex items-center space-x-2">
                         <div class="flex-1">
@@ -333,6 +420,45 @@
                         <input type="checkbox" id="prop-text-bold" class="cursor-pointer rounded border-slate-300 text-blue-600 focus:ring-blue-500">
                     </div>
                 </div>
+
+                <!-- Line Properties -->
+                <div id="prop-line-container" class="mt-2 hidden space-y-3">
+                    <div class="flex items-center gap-2">
+                        <div class="flex-1">
+                            <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Weight</label>
+                            <input type="number" id="prop-line-weight" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" min="1" max="10" step="1" value="2">
+                        </div>
+                        <div class="flex-none">
+                            <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Color</label>
+                            <input type="color" id="prop-line-color" class="w-full h-8 p-0 border-0 rounded cursor-pointer" value="#000000">
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between border-t border-slate-100 pt-2">
+                        <label class="text-xs font-semibold text-slate-600 block cursor-pointer" for="prop-line-dashed">Dashed Pattern</label>
+                        <input type="checkbox" id="prop-line-dashed" class="cursor-pointer rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                    </div>
+                </div>
+            </div>
+            <!-- Results Panel (Popped up after FE Solve) -->
+            <div id="results-panel" class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-sm p-3 rounded-lg shadow-lg border border-slate-200 hidden z-30 transition-all flex items-center space-x-1">
+                <h3 class="font-bold text-slate-700 text-sm mr-3 border-r border-slate-300 pr-3">Analysis Results</h3>
+                <button data-diagram="deflection" class="diagram-toggle-btn px-3 py-1.5 rounded text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition border border-transparent">Deflected Shape</button>
+                <button data-diagram="reactions" class="diagram-toggle-btn px-3 py-1.5 rounded text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition border border-transparent">Reactions</button>
+                <button data-diagram="afd" class="diagram-toggle-btn px-3 py-1.5 rounded text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition border border-transparent">Axial Force</button>
+                <button data-diagram="sfd" class="diagram-toggle-btn px-3 py-1.5 rounded text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition border border-transparent">Shear Output</button>
+                <button data-diagram="bmd" class="diagram-toggle-btn px-3 py-1.5 rounded text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition border border-transparent">Bending Moments</button>
+                <button data-diagram="influence" class="diagram-toggle-btn px-3 py-1.5 rounded text-xs font-medium bg-indigo-100 text-indigo-700 hover:bg-indigo-200 transition border border-transparent hidden" id="btn-toggle-influence">Influence Line</button>
+                
+                <div class="flex items-center gap-2 ml-2 border-l border-slate-300 pl-3">
+                    <label class="text-xs text-slate-600 font-medium whitespace-nowrap">Scale:</label>
+                    <input type="range" id="diagram-scale-slider" min="0.1" max="5" step="0.1" value="1" class="w-16 accent-blue-600">
+                </div>
+
+                <div class="ml-2 border-l border-slate-300 pl-3">
+                    <button class="bg-blue-600 hover:bg-blue-700 text-white rounded p-1.5 transition" id="btn-close-results" title="Clear Results">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
+                </div>
             </div>
         </main>
     </div>
@@ -361,6 +487,26 @@
                     <button id="btn-export-area" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded text-sm transition">Select Area</button>
                 </div>
             </div>
+            <!-- old (Popped up after FE Solve) -->
+            
+        </div>
+    </div>
+
+    <!-- Solver Console Modal -->
+    <div id="solver-console-modal" class="fixed inset-0 bg-black/20 z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-lg shadow-xl border border-slate-200 w-[600px] overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                <h3 class="font-bold text-slate-700">FE Solver Output</h3>
+                <button id="btn-close-console" class="text-slate-400 hover:text-slate-600">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+            <div class="p-4">
+                <pre id="solver-console-output" class="bg-slate-900 text-green-400 p-4 rounded text-xs font-mono max-h-96 overflow-y-auto whitespace-pre-wrap">Running solver...</pre>
+                <div class="mt-4 flex justify-end">
+                    <button id="btn-dismiss-console" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded text-sm font-medium transition">Close</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -381,7 +527,7 @@
                         <input type="checkbox" id="setting-snap-master" checked class="rounded border-slate-300 text-blue-600 focus:ring-blue-500">
                         <span class="text-sm font-medium text-slate-700">Enable Snapping</span>
                     </label>
-                    <div class="pl-6 space-y-2 grid grid-cols-2 gap-x-2" id="snapping-sub-options">
+                    <div class="pl-6 space-y-2 grid grid-cols-3 gap-x-2" id="snapping-sub-options">
                         <label class="flex items-center gap-2 cursor-pointer mt-2">
                             <input type="checkbox" id="setting-snap-grid" checked class="rounded border-slate-300 text-blue-600 focus:ring-blue-500">
                             <span class="text-sm text-slate-600">Snap to Grid</span>
@@ -440,6 +586,8 @@
         // Initialize icons
         lucide.createIcons();
     </script>
+    <script src="solver.js"></script>
+    <script src="diagrams.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

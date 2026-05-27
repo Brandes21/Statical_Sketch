@@ -8,6 +8,10 @@ let state = {
     entities: [],
     tool: 'select',
     selectedEntityId: null,
+    selectedIds: [],
+    clipboard: [],
+    selectionBox: null,
+    isBoxSelecting: false,
     
     // Viewport transforms
     vw: { x: 0, y: 0, z: 1 },
@@ -20,6 +24,13 @@ let state = {
     startX: 0, 
     startY: 0,
     tempEntity: null,
+    
+    // Finite Element Analysis Outputs
+    feResults: null,
+    activeDiagram: null,
+    diagramScale: 1.0,
+    hoveredDiagramValue: null, // format: { pt: {x,y}, value: number, label: string }
+    mouseWorldPos: null,
     
     gridSize: 20,
     cursorPt: {x: 0, y: 0},
@@ -61,15 +72,45 @@ function applyEntityTransform(ctx, ent) {
 // GUI Properties Panel Logic
 function updatePropertyPanel() {
     const panel = document.getElementById('property-panel');
-    if (!state.selectedEntityId || state.tool !== 'select') {
+    if (state.selectedIds.length === 0 || state.tool !== 'select') {
         panel.classList.add('hidden');
         return;
     }
-    const ent = state.entities.find(e => e.id === state.selectedEntityId);
-    if (!ent) return;
 
     panel.classList.remove('hidden');
-    document.getElementById('prop-type-name').innerText = ent.type.charAt(0).toUpperCase() + ent.type.slice(1);
+
+    const selectedEnts = state.entities.filter(e => state.selectedIds.includes(e.id));
+    if (selectedEnts.length === 0) return;
+
+    const firstType = selectedEnts[0].type;
+    const allSameType = selectedEnts.every(e => e.type === firstType);
+
+    if (state.selectedIds.length > 1 && !allSameType) {
+        document.getElementById('prop-type-name').innerText = `Multiple Items (${state.selectedIds.length})`;
+        
+        const containersToHide = [
+            'prop-magnitude-container', 'prop-distload-range-container', 'prop-perpload-container',
+            'prop-angle-container', 'prop-length-container', 'prop-dim-container', 'prop-beam-rotate-container',
+            'prop-text-container', 'prop-line-container', 'prop-force-details-container', 'prop-stiffness-container'
+        ];
+        
+        containersToHide.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.classList.add('hidden');
+        });
+        return;
+    }
+
+    const ent = selectedEnts[0];
+    
+    // Ensure selectedEntityId aligns with the array for backwards compatibility
+    state.selectedEntityId = ent.id;
+
+    if (state.selectedIds.length > 1) {
+        document.getElementById('prop-type-name').innerText = `${ent.type.charAt(0).toUpperCase() + ent.type.slice(1)}s (${state.selectedIds.length})`;
+    } else {
+        document.getElementById('prop-type-name').innerText = ent.type.charAt(0).toUpperCase() + ent.type.slice(1);
+    }
     
     const magCont = document.getElementById('prop-magnitude-container');
     const distRangeCont = document.getElementById('prop-distload-range-container');
@@ -79,6 +120,7 @@ function updatePropertyPanel() {
     const dimCont = document.getElementById('prop-dim-container');
     const beamRotCont = document.getElementById('prop-beam-rotate-container');
     const textCont = document.getElementById('prop-text-container');
+    const lineCont = document.getElementById('prop-line-container');
     
     magCont.classList.add('hidden');
     distRangeCont.classList.add('hidden');
@@ -88,6 +130,7 @@ function updatePropertyPanel() {
     dimCont.classList.add('hidden');
     beamRotCont.classList.add('hidden');
     if (textCont) textCont.classList.add('hidden');
+    if (lineCont) lineCont.classList.add('hidden');
     
     if (['force', 'moment', 'distload'].includes(ent.type)) {
         if (ent.type === 'distload') {
@@ -128,22 +171,60 @@ function updatePropertyPanel() {
         document.getElementById('prop-angle').value = ent.angle ? Math.round(ent.angle * 180 / Math.PI) : 0;
     }
 
+    if (['spring', 'rotspr'].includes(ent.type)) {
+        document.getElementById('prop-stiffness-container').classList.remove('hidden');
+        document.getElementById('prop-stiffness').value = ent.stiffness !== undefined ? ent.stiffness : 1000;
+        
+        if (ent.type === 'rotspr') {
+            document.getElementById('prop-stiffness-label').textContent = 'Rotational Stiffness (k)';
+            document.getElementById('prop-trans-stiffness-wrapper').classList.add('hidden');
+            const unitSpan = document.querySelector('.prop-stiffness-unit');
+            if (unitSpan) unitSpan.textContent = 'kNm/rad';
+        } else {
+            document.getElementById('prop-stiffness-label').textContent = 'Axial Stiffness (k)';
+            document.getElementById('prop-trans-stiffness-wrapper').classList.remove('hidden');
+            document.getElementById('prop-stiffness-trans').value = ent.stiffnessTrans !== undefined ? ent.stiffnessTrans : 0;
+            const unitSpan = document.querySelector('.prop-stiffness-unit');
+            if (unitSpan) unitSpan.textContent = 'kN/m';
+        }
+    }
+
     if (['beam', 'force'].includes(ent.type)) {
-        lenCont.classList.remove('hidden');
-        const len = dist(ent.p1, ent.p2) / state.gridSize;
-        document.getElementById('prop-length').value = len.toFixed(2);
+        if (state.selectedIds.length > 1) {
+            lenCont.classList.add('hidden');
+        } else {
+            lenCont.classList.remove('hidden');
+            const len = dist(ent.p1, ent.p2) / state.gridSize;
+            document.getElementById('prop-length').value = len.toFixed(2);
+        }
     }
 
     if (['beam', 'arc', 'parabola'].includes(ent.type)) {
         beamRotCont.classList.remove('hidden');
         document.getElementById('prop-beam-rot-angle').value = 0;
         
-        // Show coordinates using the new input fields (assume origin is 0,0 where we want, but grid handles absolute numbers - converting back to typical grid coordinates if needed, here just raw / gridSize for unit consistency)
+        if (ent.type === 'beam' && document.getElementById('prop-beam-type')) {
+            document.getElementById('prop-beam-type').parentElement.classList.remove('hidden');
+            document.getElementById('prop-beam-type').value = ent.isTruss ? 'truss' : 'beam';
+        } else if (document.getElementById('prop-beam-type')) {
+            document.getElementById('prop-beam-type').parentElement.classList.add('hidden');
+        }
+        
+        // Hide absolute coordinates if multiple are selected, otherwise show bounds
         if (document.getElementById('prop-beam-p1-x')) {
-            document.getElementById('prop-beam-p1-x').value = (ent.p1.x / state.gridSize).toFixed(2);
-            document.getElementById('prop-beam-p1-y').value = (-ent.p1.y / state.gridSize).toFixed(2); // Canvas Y is inverted
-            document.getElementById('prop-beam-p2-x').value = (ent.p2.x / state.gridSize).toFixed(2);
-            document.getElementById('prop-beam-p2-y').value = (-ent.p2.y / state.gridSize).toFixed(2);
+            const coordInputs = [
+                document.getElementById('prop-beam-p1-x'), document.getElementById('prop-beam-p1-y'),
+                document.getElementById('prop-beam-p2-x'), document.getElementById('prop-beam-p2-y')
+            ];
+            if (state.selectedIds.length > 1) {
+                coordInputs.forEach(el => el.parentElement.parentElement.classList.add('hidden'));
+            } else {
+                coordInputs.forEach(el => el.parentElement.parentElement.classList.remove('hidden'));
+                document.getElementById('prop-beam-p1-x').value = (ent.p1.x / state.gridSize).toFixed(2);
+                document.getElementById('prop-beam-p1-y').value = (-ent.p1.y / state.gridSize).toFixed(2); // Canvas Y is inverted
+                document.getElementById('prop-beam-p2-x').value = (ent.p2.x / state.gridSize).toFixed(2);
+                document.getElementById('prop-beam-p2-y').value = (-ent.p2.y / state.gridSize).toFixed(2);
+            }
         }
     }
 
@@ -168,77 +249,90 @@ function updatePropertyPanel() {
         document.getElementById('prop-text-color').value = ent.textColor || styleSettings[ent.type].color || styleSettings[ent.type].rgba;
         document.getElementById('prop-text-bold').checked = ent.textBold !== undefined ? ent.textBold : (ent.type !== 'textLabel');
     }
+
+    if (ent.type === 'line' && lineCont) {
+        lineCont.classList.remove('hidden');
+        document.getElementById('prop-line-weight').value = ent.weight || 2;
+        document.getElementById('prop-line-color').value = ent.color || '#000000';
+        document.getElementById('prop-line-dashed').checked = ent.dashed || false;
+    }
+}
+
+function updateSelectedEntities(callback) {
+    if (state.selectedIds.length > 0) {
+        state.entities.filter(el => state.selectedIds.includes(el.id)).forEach(ent => callback(ent));
+        requestRedraw();
+    }
 }
 
 document.getElementById('prop-magnitude').addEventListener('input', (e) => {
-    if (state.selectedEntityId) {
-        const ent = state.entities.find(el => el.id === state.selectedEntityId);
-        if (ent) ent.magnitude = e.target.value;
-        requestRedraw();
-    }
+    updateSelectedEntities(ent => {
+        ent.magnitude = e.target.value;
+    });
 });
 
 document.getElementById('prop-distload-start').addEventListener('input', (e) => {
-    if (state.selectedEntityId) {
-        const ent = state.entities.find(el => el.id === state.selectedEntityId);
-        if (ent) ent.startMagnitude = e.target.value;
-        requestRedraw();
-    }
+    updateSelectedEntities(ent => {
+        ent.startMagnitude = e.target.value;
+    });
 });
 
 document.getElementById('prop-distload-end').addEventListener('input', (e) => {
-    if (state.selectedEntityId) {
-        const ent = state.entities.find(el => el.id === state.selectedEntityId);
-        if (ent) ent.endMagnitude = e.target.value;
-        requestRedraw();
-    }
+    updateSelectedEntities(ent => {
+        ent.endMagnitude = e.target.value;
+    });
 });
 
 document.getElementById('prop-force-prefix').addEventListener('input', (e) => {
-    if (state.selectedEntityId) {
-        const ent = state.entities.find(el => el.id === state.selectedEntityId);
-        if (ent && ['force', 'distload'].includes(ent.type)) ent.prefix = e.target.value;
-        requestRedraw();
-    }
+    updateSelectedEntities(ent => {
+        if (['force', 'distload'].includes(ent.type)) ent.prefix = e.target.value;
+    });
 });
 
 document.getElementById('prop-force-unit').addEventListener('change', (e) => {
-    if (state.selectedEntityId) {
-        const ent = state.entities.find(el => el.id === state.selectedEntityId);
-        if (ent && ['force', 'distload'].includes(ent.type)) ent.unit = e.target.value;
-        requestRedraw();
-    }
+    updateSelectedEntities(ent => {
+        if (['force', 'distload'].includes(ent.type)) ent.unit = e.target.value;
+    });
 });
 
 document.getElementById('prop-perpload').addEventListener('input', (e) => {
-    if (state.selectedEntityId) {
-        const ent = state.entities.find(el => el.id === state.selectedEntityId);
-        if (ent) ent.perpLoad = e.target.value;
-        requestRedraw();
-    }
+    updateSelectedEntities(ent => {
+        ent.perpLoad = e.target.value;
+    });
 });
 
 document.getElementById('prop-angle').addEventListener('input', (e) => {
-    if (state.selectedEntityId) {
-        const ent = state.entities.find(el => el.id === state.selectedEntityId);
-        if (ent) {
-            ent.angle = parseFloat(e.target.value || 0) * Math.PI / 180;
-            if (ent.type === 'force') {
-                const len = dist(ent.p1, ent.p2);
-                ent.p1 = {
-                    x: ent.p2.x - len * Math.cos(ent.angle),
-                    y: ent.p2.y - len * Math.sin(ent.angle)
-                };
-            }
-            requestRedraw();
+    updateSelectedEntities(ent => {
+        ent.angle = parseFloat(e.target.value || 0) * Math.PI / 180;
+        if (ent.type === 'force') {
+            const len = dist(ent.p1, ent.p2);
+            ent.p1 = {
+                x: ent.p2.x - len * Math.cos(ent.angle),
+                y: ent.p2.y - len * Math.sin(ent.angle)
+            };
         }
-    }
+    });
+});
+
+document.getElementById('prop-stiffness').addEventListener('input', (e) => {
+    updateSelectedEntities(ent => {
+        if (['spring', 'rotspr'].includes(ent.type)) {
+            ent.stiffness = parseFloat(e.target.value) || 0;
+        }
+    });
+});
+
+document.getElementById('prop-stiffness-trans').addEventListener('input', (e) => {
+    updateSelectedEntities(ent => {
+        if (ent.type === 'spring') {
+            ent.stiffnessTrans = parseFloat(e.target.value) || 0;
+        }
+    });
 });
 
 document.getElementById('prop-length').addEventListener('input', (e) => {
-    if (state.selectedEntityId) {
-        const ent = state.entities.find(el => el.id === state.selectedEntityId);
-        if (ent && ['beam', 'force'].includes(ent.type)) {
+    updateSelectedEntities(ent => {
+        if (['beam', 'force'].includes(ent.type)) {
             const val = parseFloat(e.target.value);
             if (!isNaN(val) && val >= 0) {
                 const realLen = val * state.gridSize;
@@ -254,17 +348,15 @@ document.getElementById('prop-length').addEventListener('input', (e) => {
                         y: ent.p2.y - realLen * Math.sin(ent.angle !== undefined ? ent.angle : Math.PI / 2)
                     };
                 }
-                requestRedraw();
             }
         }
-    }
+    });
 });
 
 ['prop-dim-text', 'prop-dim-units', 'prop-dim-decimals', 'prop-dim-lines'].forEach(id => {
     document.getElementById(id).addEventListener('input', (e) => {
-        if (state.selectedEntityId) {
-            const ent = state.entities.find(el => el.id === state.selectedEntityId);
-            if (ent && ['dimension', 'angdim'].includes(ent.type)) {
+        updateSelectedEntities(ent => {
+            if (['dimension', 'angdim'].includes(ent.type)) {
                 if (id === 'prop-dim-text') ent.dimText = e.target.value;
                 if (id === 'prop-dim-units') ent.dimUnits = e.target.checked;
                 if (id === 'prop-dim-decimals') {
@@ -272,9 +364,8 @@ document.getElementById('prop-length').addEventListener('input', (e) => {
                     ent.dimDecimals = isNaN(dec) ? (ent.type === 'angdim' ? 1 : 3) : dec;
                 }
                 if (id === 'prop-dim-lines') ent.dimLines = e.target.checked;
-                requestRedraw();
             }
-        }
+        });
     });
 });
 
@@ -282,75 +373,98 @@ document.getElementById('prop-length').addEventListener('input', (e) => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('input', (e) => {
-        if (state.selectedEntityId) {
-            const ent = state.entities.find(el => el.id === state.selectedEntityId);
-            if (ent && ['textLabel', 'force'].includes(ent.type)) {
+        updateSelectedEntities(ent => {
+            if (['textLabel', 'force'].includes(ent.type)) {
                 if (id === 'prop-text-content' && ent.type === 'textLabel') ent.textContent = e.target.value;
                 if (id === 'prop-text-size') ent.textSize = parseInt(e.target.value);
                 if (id === 'prop-text-font') ent.textFont = e.target.value;
                 if (id === 'prop-text-color') ent.textColor = e.target.value;
                 if (id === 'prop-text-bold') ent.textBold = e.target.checked;
-                requestRedraw();
             }
-        }
+        });
     });
 });
+
+['prop-line-weight', 'prop-line-color', 'prop-line-dashed'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const eventName = id === 'prop-line-color' ? 'input' : 'change';
+    el.addEventListener(eventName, (e) => {
+        updateSelectedEntities(ent => {
+            if (ent.type === 'line') {
+                if (id === 'prop-line-weight') ent.weight = parseFloat(e.target.value);
+                if (id === 'prop-line-color') ent.color = e.target.value;
+                if (id === 'prop-line-dashed') ent.dashed = e.target.checked;
+            }
+        });
+    });
+});
+
+const typeEl = document.getElementById('prop-beam-type');
+if (typeEl) {
+    typeEl.addEventListener('change', (e) => {
+        updateSelectedEntities(ent => {
+            if (ent.type === 'beam') {
+                ent.isTruss = e.target.value === 'truss';
+            }
+        });
+    });
+}
 
 ['prop-beam-p1-x', 'prop-beam-p1-y', 'prop-beam-p2-x', 'prop-beam-p2-y'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('change', (e) => {
-        if (!state.selectedEntityId) return;
-        const ent = state.entities.find(el => el.id === state.selectedEntityId);
-        if (ent && ['beam', 'arc', 'parabola'].includes(ent.type)) {
-            const val = parseFloat(e.target.value);
-            if (isNaN(val)) return;
-            
-            if (id === 'prop-beam-p1-x') ent.p1.x = val * state.gridSize;
-            if (id === 'prop-beam-p1-y') ent.p1.y = -val * state.gridSize; // Y axis is inverted in canvas vs user expectation typically
-            if (id === 'prop-beam-p2-x') ent.p2.x = val * state.gridSize;
-            if (id === 'prop-beam-p2-y') ent.p2.y = -val * state.gridSize;
-            
-            requestRedraw();
-        }
+        updateSelectedEntities(ent => {
+            if (['beam', 'arc', 'parabola'].includes(ent.type)) {
+                const val = parseFloat(e.target.value);
+                if (!isNaN(val)) {
+                    if (id === 'prop-beam-p1-x') ent.p1.x = val * state.gridSize;
+                    if (id === 'prop-beam-p1-y') ent.p1.y = -val * state.gridSize; // Y axis is inverted
+                    if (id === 'prop-beam-p2-x') ent.p2.x = val * state.gridSize;
+                    if (id === 'prop-beam-p2-y') ent.p2.y = -val * state.gridSize;
+                }
+            }
+        });
     });
 });
 
 // Attach beam rotation button listener globally
 document.getElementById('btn-prop-beam-rotate').addEventListener('click', () => {
-    if (!state.selectedEntityId) return;
-    const ent = state.entities.find(e => e.id === state.selectedEntityId);
-    if (!ent || !['beam', 'arc', 'parabola'].includes(ent.type)) return;
-
     const angleDeg = parseFloat(document.getElementById('prop-beam-rot-angle').value);
     if (isNaN(angleDeg) || angleDeg === 0) return;
     const angleRad = angleDeg * Math.PI / 180;
-
     const pivotType = document.getElementById('prop-beam-pivot').value;
-    let pivot = { x: 0, y: 0 };
-    if (pivotType === 'p1') {
-        pivot = { ...ent.p1 };
-    } else if (pivotType === 'p2') {
-        pivot = { ...ent.p2 };
-    } else {
-        pivot = { x: (ent.p1.x + ent.p2.x) / 2, y: (ent.p1.y + ent.p2.y) / 2 };
-    }
-
-    const rotatePoint = (pt, origin, rad) => {
-        const dx = pt.x - origin.x;
-        const dy = pt.y - origin.y;
-        return {
-            x: origin.x + dx * Math.cos(rad) - dy * Math.sin(rad),
-            y: origin.y + dx * Math.sin(rad) + dy * Math.cos(rad)
-        };
-    };
 
     saveState();
-    ent.p1 = rotatePoint(ent.p1, pivot, angleRad);
-    ent.p2 = rotatePoint(ent.p2, pivot, angleRad);
-    if (ent.p3) {
-        ent.p3 = rotatePoint(ent.p3, pivot, angleRad);
-    }
+
+    updateSelectedEntities(ent => {
+        if (!['beam', 'arc', 'parabola'].includes(ent.type)) return;
+
+        let pivot = { x: 0, y: 0 };
+        if (pivotType === 'p1') {
+            pivot = { ...ent.p1 };
+        } else if (pivotType === 'p2') {
+            pivot = { ...ent.p2 };
+        } else {
+            pivot = { x: (ent.p1.x + ent.p2.x) / 2, y: (ent.p1.y + ent.p2.y) / 2 };
+        }
+
+        const rotatePoint = (pt, origin, rad) => {
+            const dx = pt.x - origin.x;
+            const dy = pt.y - origin.y;
+            return {
+                x: origin.x + dx * Math.cos(rad) - dy * Math.sin(rad),
+                y: origin.y + dx * Math.sin(rad) + dy * Math.cos(rad)
+            };
+        };
+
+        ent.p1 = rotatePoint(ent.p1, pivot, angleRad);
+        ent.p2 = rotatePoint(ent.p2, pivot, angleRad);
+        if (ent.p3) {
+            ent.p3 = rotatePoint(ent.p3, pivot, angleRad);
+        }
+    });
     
     // reset input
     document.getElementById('prop-beam-rot-angle').value = 0;
@@ -432,8 +546,9 @@ document.addEventListener('keydown', (e) => {
             document.getElementById('cad-input-panel').classList.add('hidden');
             history.undo.pop(); 
             requestRedraw();
-        } else if (state.selectedEntityId) {
+        } else if (state.selectedIds.length > 0 || state.selectedEntityId) {
             state.selectedEntityId = null;
+            state.selectedIds = [];
             updatePropertyPanel();
             requestRedraw();
         }
@@ -442,7 +557,14 @@ document.addEventListener('keydown', (e) => {
 
     // Only interact with keys if we are not actively typing in an input field
     if (e.target.tagName !== 'INPUT' && (e.key === 'Delete' || e.key === 'Backspace')) {
-        if (state.selectedEntityId && state.tool === 'select') {
+        if (state.selectedIds.length > 0 && state.tool === 'select') {
+            state.entities = state.entities.filter(ent => !state.selectedIds.includes(ent.id));
+            state.selectedEntityId = null;
+            state.selectedIds = [];
+            saveState();
+            updatePropertyPanel();
+            requestRedraw();
+        } else if (state.selectedEntityId && state.tool === 'select') {
             state.entities = state.entities.filter(ent => ent.id !== state.selectedEntityId);
             state.selectedEntityId = null;
             saveState();
@@ -450,6 +572,43 @@ document.addEventListener('keydown', (e) => {
             requestRedraw();
         }
     }
+
+    // Copy
+    if (e.target.tagName !== 'INPUT' && e.ctrlKey && e.key.toLowerCase() === 'c') {
+        if (state.selectedIds.length > 0 && state.tool === 'select') {
+            state.clipboard = state.entities
+                .filter(ent => state.selectedIds.includes(ent.id))
+                .map(ent => JSON.parse(JSON.stringify(ent))); // Deep copy
+        } else if (state.selectedEntityId && state.tool === 'select') {
+            state.clipboard = state.entities
+                .filter(ent => ent.id === state.selectedEntityId)
+                .map(ent => JSON.parse(JSON.stringify(ent)));
+        }
+    }
+
+    // Paste
+    if (e.target.tagName !== 'INPUT' && e.ctrlKey && e.key.toLowerCase() === 'v') {
+        if (state.clipboard.length > 0 && state.tool === 'select') {
+            saveState();
+            const newIds = [];
+            state.clipboard.forEach(ent => {
+                const newEnt = JSON.parse(JSON.stringify(ent));
+                newEnt.id = generateId();
+                // offset slightly by one grid cell (which is state.gridSize visually, but world units is just 1)
+                const offset = 1;
+                if (newEnt.p1) { newEnt.p1.x += offset; newEnt.p1.y -= offset; }
+                if (newEnt.p2) { newEnt.p2.x += offset; newEnt.p2.y -= offset; }
+                if (newEnt.p3) { newEnt.p3.x += offset; newEnt.p3.y -= offset; }
+                state.entities.push(newEnt);
+                newIds.push(newEnt.id);
+            });
+            state.selectedIds = newIds;
+            state.selectedEntityId = newIds[newIds.length - 1];
+            updatePropertyPanel();
+            requestRedraw();
+        }
+    }
+
     // Undo / Redo
     if (e.target.tagName !== 'INPUT' && e.ctrlKey && e.key.toLowerCase() === 'z') triggerUndo();
     if (e.target.tagName !== 'INPUT' && e.ctrlKey && e.key.toLowerCase() === 'y') triggerRedo();
@@ -461,9 +620,185 @@ document.getElementById('btn-clear').addEventListener('click', () => {
     saveState();
     state.entities = [];
     state.selectedEntityId = null;
+    state.selectedIds = [];
     updatePropertyPanel();
     requestRedraw();
 });
+document.getElementById('btn-solve').addEventListener('click', () => {
+    if (typeof buildFEModel === 'function' && typeof solveFEModel === 'function') {
+        const model = buildFEModel(state.entities, state.gridSize);
+        console.log("Extracted FE Model:", model);
+        
+        const results = solveFEModel(model);
+        
+        const consoleModal = document.getElementById('solver-console-modal');
+        const consoleOut = document.getElementById('solver-console-output');
+        consoleOut.textContent = '';
+        consoleModal.classList.remove('hidden');
+
+        if (results.success) {
+            console.log("Solver Results:", results);
+            consoleOut.textContent += "System generated successfully.\n\n";
+            consoleOut.textContent += "=== NODAL DISPLACEMENTS ===\n";
+            
+            model.nodes.forEach(n => {
+                consoleOut.textContent += `Node ID: ${n.id} (FE X: ${n.x.toFixed(3)}, FE Y: ${n.y.toFixed(3)})\n`;
+                consoleOut.textContent += `  Ux: ${(n.ux * 1000).toFixed(5)} mm\n`;
+                consoleOut.textContent += `  Uy: ${(n.uy * 1000).toFixed(5)} mm\n`;
+                consoleOut.textContent += `  Rz: ${(n.rz * 1000).toFixed(5)} mrad\n\n`;
+            });
+            
+            consoleOut.textContent += "See browser dev console for full internal JSON structures.";
+            lucide.createIcons();
+            
+            // Store results in global state and show results toolbar
+            state.feResults = results;
+            document.getElementById('results-panel').classList.remove('hidden');
+            
+        } else {
+            console.error("Solver Error:", results.error);
+            consoleOut.classList.remove('text-green-400');
+            consoleOut.classList.add('text-red-400');
+            consoleOut.textContent += "SOLVER ERROR:\n\n" + results.error + "\n\nTip: Make sure supports are fully locking translation, and beam paths form continuous lines.";
+        }
+    } else {
+        alert("Solver script not completely loaded yet.");
+    }
+});
+
+document.getElementById('btn-close-console').addEventListener('click', () => {
+    document.getElementById('solver-console-modal').classList.add('hidden');
+    document.getElementById('solver-console-output').className = 'bg-slate-900 text-green-400 p-4 rounded text-xs font-mono max-h-96 overflow-y-auto whitespace-pre-wrap';
+});
+document.getElementById('btn-dismiss-console').addEventListener('click', () => {
+    document.getElementById('solver-console-modal').classList.add('hidden');
+    document.getElementById('solver-console-output').className = 'bg-slate-900 text-green-400 p-4 rounded text-xs font-mono max-h-96 overflow-y-auto whitespace-pre-wrap';
+});
+
+// FE Results Toggle Logic
+document.getElementById('btn-close-results').addEventListener('click', () => {
+    state.activeDiagram = null;
+    state.feResults = null;
+    document.getElementById('results-panel').classList.add('hidden');
+    document.querySelectorAll('.diagram-toggle-btn').forEach(b => {
+        b.classList.remove('bg-indigo-600', 'text-white');
+        b.classList.add('bg-slate-100', 'text-slate-600', 'hover:bg-slate-200');
+    });
+    requestRedraw();
+});
+
+document.querySelectorAll('.diagram-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        // Toggle selected state visually
+        document.querySelectorAll('.diagram-toggle-btn').forEach(b => {
+            b.classList.remove('bg-indigo-600', 'text-white');
+            b.classList.add('bg-slate-100', 'text-slate-600', 'hover:bg-slate-200');
+        });
+        
+        const type = e.currentTarget.dataset.diagram;
+        
+        if (state.activeDiagram === type) {
+            state.activeDiagram = null; // Toggle off if clicked again
+        } else {
+            state.activeDiagram = type;
+            e.currentTarget.classList.remove('bg-slate-100', 'text-slate-600', 'hover:bg-slate-200');
+            e.currentTarget.classList.add('bg-indigo-600', 'text-white');
+            
+            // If switching to a static diagram (sfd, bmd, afd, disp) and we lost the base model due to influence line
+            if (type !== 'influence' && state.feResults && state.feResults.isInfluence) {
+                const model = buildFEModel(state.entities, state.gridSize);
+                state.feResults = solveFEModel(model);
+            }
+        }
+        requestRedraw();
+    });
+});
+
+const diagScaleSlider = document.getElementById('diagram-scale-slider');
+if (diagScaleSlider) {
+    diagScaleSlider.addEventListener('input', (e) => {
+        state.diagramScale = parseFloat(e.target.value) || 1.0;
+        requestRedraw();
+    });
+    // Add wheel event to cleanly change scale with mouse scroll when hovering slider
+    diagScaleSlider.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const step = parseFloat(diagScaleSlider.step) || 0.1;
+        let val = parseFloat(diagScaleSlider.value);
+        if (e.deltaY < 0) val += step;
+        else val -= step;
+        val = Math.max(parseFloat(diagScaleSlider.min), Math.min(parseFloat(diagScaleSlider.max), val));
+        diagScaleSlider.value = val;
+        state.diagramScale = val;
+        requestRedraw();
+    });
+}
+
+// Project Save / Load Logic
+document.getElementById('btn-save-proj').addEventListener('click', async () => {
+    const dataStr = JSON.stringify(state.entities);
+    
+    if (window.showSaveFilePicker) {
+        try {
+            const fileHandle = await window.showSaveFilePicker({
+                suggestedName: 'statics_sketch.json',
+                types: [{
+                    description: 'JSON Project File',
+                    accept: { 'application/json': ['.json'] },
+                }],
+            });
+            const writable = await fileHandle.createWritable();
+            await writable.write(dataStr);
+            await writable.close();
+            return; // Successfully saved
+        } catch (err) {
+            if (err.name === 'AbortError') return; // User simply cancelled the dialog
+            console.warn('File System Access API failed, falling back to download.', err);
+        }
+    }
+    
+    // Fallback for browsers that don't support showSaveFilePicker (or if it fails/runs in non-secure context)
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'statics_sketch.json';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+});
+
+document.getElementById('btn-open-proj').addEventListener('click', () => {
+    document.getElementById('file-open-input').click();
+});
+
+document.getElementById('file-open-input').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+        try {
+            const loadedEntities = JSON.parse(evt.target.result);
+            if (Array.isArray(loadedEntities)) {
+                saveState(); // push current to history
+                state.entities = loadedEntities;
+                state.selectedEntityId = null;
+                updatePropertyPanel();
+                requestRedraw();
+            } else {
+                alert('Invalid project file format.');
+            }
+        } catch (err) {
+            alert('Error reading project file.');
+            console.error(err);
+        }
+    };
+    reader.readAsText(file);
+    // Reset value so the same file could be selected again if needed
+    e.target.value = '';
+});
+
 // Export Modal Logic
 document.getElementById('btn-export').addEventListener('click', () => {
     document.getElementById('export-modal').classList.remove('hidden');
@@ -505,7 +840,12 @@ function doExport(cropBox = null) {
 
     ctx.globalAlpha = styleSettings.opacity;
     for (const ent of state.entities) {
+        if (!isEntityVisible(ent)) continue;
         EntityLogic[ent.type].draw(ctx, ent, false, false);
+    }
+    
+    if (state.feResults && state.feResults.success && state.activeDiagram && typeof drawFEDiagrams === 'function') {
+        drawFEDiagrams(ctx, state.feResults, state.activeDiagram, state.diagramScale, state.mouseWorldPos);
     }
     
     ctx.restore();
@@ -576,6 +916,12 @@ document.getElementById('btn-settings').addEventListener('click', () => {
 document.getElementById('btn-close-settings').addEventListener('click', () => {
     document.getElementById('settings-modal').classList.add('hidden');
 });
+
+// Visibility Toggles
+document.getElementById('vis-structure').addEventListener('change', requestRedraw);
+document.getElementById('vis-supports').addEventListener('change', requestRedraw);
+document.getElementById('vis-loads').addEventListener('change', requestRedraw);
+
 document.getElementById('setting-snap-master').addEventListener('change', (e) => {
     renderSettings.master = e.target.checked;
     const subOpts = document.getElementById('snapping-sub-options');
@@ -910,17 +1256,71 @@ const snap = (pt) => {
         }
     }
 
-    // 2. Try Elements (Beams mainly)
+    // 2. Try Elements (Beams, Arcs, Parabolas)
     if (renderSettings.elements) {
         let nearestEl = null;
         let minDistEl = Infinity;
+        
+        const checkLineSegment = (p1, p2) => {
+            const proj = projectToLine(pt, p1, p2);
+            const d = dist(pt, proj);
+            if (d < minDistEl && d < snapRadius / state.vw.z) {
+                minDistEl = d;
+                nearestEl = proj;
+            }
+        };
+
         for (const ent of state.entities) {
             if (ent.type === 'beam') {
-                const proj = projectToLine(pt, ent.p1, ent.p2);
-                const d = dist(pt, proj);
-                if (d < minDistEl && d < snapRadius / state.vw.z) {
-                    minDistEl = d;
-                    nearestEl = proj;
+                checkLineSegment(ent.p1, ent.p2);
+            } else if (ent.type === 'parabola' && ent.p3) {
+                const steps = 15;
+                let lastPt = ent.p1;
+                for (let i = 1; i <= steps; i++) {
+                    const t = i / steps;
+                    const u = 1 - t;
+                    const x = u*u*ent.p1.x + 2*u*t*ent.p3.x + t*t*ent.p2.x;
+                    const y = u*u*ent.p1.y + 2*u*t*ent.p3.y + t*t*ent.p2.y;
+                    const ptSegment = { x, y };
+                    checkLineSegment(lastPt, ptSegment);
+                    lastPt = ptSegment;
+                }
+            } else if (ent.type === 'arc' && ent.p3) {
+                const dx = ent.p2.x - ent.p1.x;
+                const dy = ent.p2.y - ent.p1.y;
+                const L = Math.hypot(dx, dy);
+                if (L > 1e-3) {
+                    const nx = -dy / L, ny = dx / L;
+                    const mx = (ent.p1.x + ent.p2.x) / 2;
+                    const my = (ent.p1.y + ent.p2.y) / 2;
+                    const h = (ent.p3.x - mx) * nx + (ent.p3.y - my) * ny;
+                    
+                    if (Math.abs(h) > 1e-3) {
+                        const R = (L * L) / (8 * h) + h / 2;
+                        const cx = mx - (R - h) * nx;
+                        const cy = my - (R - h) * ny;
+                        let startAngle = Math.atan2(ent.p1.y - cy, ent.p1.x - cx);
+                        let endAngle = Math.atan2(ent.p2.y - cy, ent.p2.x - cx);
+                        
+                        const isCCW = h < 0;
+                        if (isCCW) {
+                            while (endAngle > startAngle) endAngle -= Math.PI * 2;
+                        } else {
+                            while (endAngle < startAngle) endAngle += Math.PI * 2;
+                        }
+                        
+                        const steps = 15;
+                        let lastPt = ent.p1;
+                        for (let i = 1; i <= steps; i++) {
+                            const ang = startAngle + (endAngle - startAngle) * (i / steps);
+                            const ptSegment = { x: cx + Math.abs(R) * Math.cos(ang), y: cy + Math.abs(R) * Math.sin(ang) };
+                            if (i === steps) { ptSegment.x = ent.p2.x; ptSegment.y = ent.p2.y; }
+                            checkLineSegment(lastPt, ptSegment);
+                            lastPt = ptSegment;
+                        }
+                    } else {
+                        checkLineSegment(ent.p1, ent.p2);
+                    }
                 }
             }
         }
@@ -965,6 +1365,35 @@ function drawTextMagnitude(ctx, text, color, x, y, options = {}) {
 
 // Entity rendering and logic functions
 const EntityLogic = {
+    line: {
+        draw: (ctx, ent, isSelected, isPreview) => {
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(ent.p1.x, ent.p1.y);
+            ctx.lineTo(ent.p2.x, ent.p2.y);
+            
+            ctx.strokeStyle = isSelected ? '#3b82f6' : (ent.color || '#000000');
+            ctx.lineWidth = ent.weight || 2;
+            
+            if (ent.dashed) {
+                ctx.setLineDash([6, 6]);
+            }
+            if (isPreview) {
+                ctx.strokeStyle = '#94a3b8';
+                ctx.setLineDash([4, 4]);
+            }
+            ctx.stroke();
+            ctx.restore();
+        },
+        hitTest: (pt, ent) => {
+            const proj = projectToLine(pt, ent.p1, ent.p2);
+            return dist(proj, pt) < 6 / state.vw.z;
+        },
+        move: (ent, dx, dy) => {
+            ent.p1.x += dx; ent.p1.y += dy;
+            ent.p2.x += dx; ent.p2.y += dy;
+        }
+    },
     beam: {
         draw: (ctx, ent, isSelected, isPreview) => {
             ctx.save();
@@ -2009,6 +2438,21 @@ function drawGridDimensions(ctx, cWidth, cHeight) {
     ctx.restore();
 }
 
+function isEntityVisible(ent) {
+    if (!ent) return true;
+    const type = ent.type;
+    if (['beam', 'arc', 'parabola'].includes(type)) {
+        return document.getElementById('vis-structure')?.checked ?? true;
+    }
+    if (['pin', 'roller', 'fixed', 'hinge', 'spring', 'rotspr'].includes(type)) {
+        return document.getElementById('vis-supports')?.checked ?? true;
+    }
+    if (['force', 'distload', 'moment'].includes(type)) {
+        return document.getElementById('vis-loads')?.checked ?? true;
+    }
+    return true; // dimension, text, etc
+}
+
 function render() {
     const cWidth = wrapper.clientWidth;
     const cHeight = wrapper.clientHeight;
@@ -2030,7 +2474,8 @@ function render() {
     ctx.globalAlpha = styleSettings.opacity;
 
     for (const ent of state.entities) {
-        EntityLogic[ent.type].draw(ctx, ent, ent.id === state.selectedEntityId, false);
+        if (!isEntityVisible(ent)) continue;
+        EntityLogic[ent.type].draw(ctx, ent, state.selectedIds.includes(ent.id), false);
     }
 
     if (state.tempEntity) {
@@ -2038,26 +2483,33 @@ function render() {
         EntityLogic[state.tempEntity.type].draw(ctx, state.tempEntity, false, true);
     }
     
-    // Draw grips for selected entity
-    if (state.selectedEntityId) {
-        const selEnt = state.entities.find(e => e.id === state.selectedEntityId);
-        if (selEnt && selEnt.p1 && selEnt.p2) {
-            ctx.fillStyle = '#ffffff';
-            ctx.strokeStyle = '#3b82f6';
-            ctx.lineWidth = 1.5 / state.vw.z;
-            const r = 4 / state.vw.z;
-            
-            const drawGrip = (p) => {
-                ctx.beginPath();
-                ctx.rect(p.x - r, p.y - r, r*2, r*2);
-                ctx.fill();
-                ctx.stroke();
-            };
-            
-            drawGrip(selEnt.p1);
-            drawGrip(selEnt.p2);
-            if (selEnt.p3) drawGrip(selEnt.p3);
-        }
+    // Draw grips for selected entities
+    if (state.selectedIds.length > 0) {
+        state.selectedIds.forEach(id => {
+            const selEnt = state.entities.find(e => e.id === id);
+            if (selEnt && selEnt.p1 && selEnt.p2) {
+                ctx.fillStyle = '#ffffff';
+                ctx.strokeStyle = '#3b82f6';
+                ctx.lineWidth = 1.5 / state.vw.z;
+                const r = 4 / state.vw.z;
+                
+                const drawGrip = (p) => {
+                    ctx.beginPath();
+                    ctx.rect(p.x - r, p.y - r, r*2, r*2);
+                    ctx.fill();
+                    ctx.stroke();
+                };
+                
+                drawGrip(selEnt.p1);
+                drawGrip(selEnt.p2);
+                if (selEnt.p3) drawGrip(selEnt.p3);
+            }
+        });
+    }
+
+    // Draw FE Diagram overlays
+    if (state.feResults && state.feResults.success && state.activeDiagram && typeof drawFEDiagrams === 'function') {
+        drawFEDiagrams(ctx, state.feResults, state.activeDiagram, state.diagramScale, state.mouseWorldPos);
     }
 
     ctx.globalAlpha = 1.0;
@@ -2113,6 +2565,21 @@ function render() {
         
         ctx.restore();
     }
+
+    // Draw selection box
+    if (state.isBoxSelecting && state.selectionBox) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(74, 144, 226, 0.2)';
+        ctx.strokeStyle = 'rgba(74, 144, 226, 0.8)';
+        ctx.lineWidth = 1;
+        const x = Math.min(state.selectionBox.startX, state.selectionBox.endX);
+        const y = Math.min(state.selectionBox.startY, state.selectionBox.endY);
+        const w = Math.abs(state.selectionBox.endX - state.selectionBox.startX);
+        const h = Math.abs(state.selectionBox.endY - state.selectionBox.startY);
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeRect(x, y, w, h);
+        ctx.restore();
+    }
     
     renderQueued = false;
 }
@@ -2142,9 +2609,9 @@ canvas.addEventListener('mousedown', (e) => {
         const handleRadius = 6 / state.vw.z;
         let gripClicked = null;
         
-        // Check grips of currently selected entity first
-        if (state.selectedEntityId) {
-            const selEnt = state.entities.find(e => e.id === state.selectedEntityId);
+        // Check grips of currently selected entity first (only if exactly 1 is selected)
+        if (state.selectedEntityId && state.selectedIds.length <= 1) {
+            const selEnt = state.entities.find(en => en.id === state.selectedEntityId);
             if (selEnt && selEnt.p1 && selEnt.p2) {
                 if (dist(wPt, selEnt.p1) < handleRadius) gripClicked = 'p1';
                 else if (dist(wPt, selEnt.p2) < handleRadius) gripClicked = 'p2';
@@ -2167,7 +2634,19 @@ canvas.addEventListener('mousedown', (e) => {
         }
         
         if (clicked) {
-            state.selectedEntityId = clicked.id;
+            if (e.ctrlKey) {
+                if (state.selectedIds.includes(clicked.id)) {
+                    state.selectedIds = state.selectedIds.filter(id => id !== clicked.id);
+                } else {
+                    state.selectedIds.push(clicked.id);
+                }
+            } else {
+                if (!state.selectedIds.includes(clicked.id)) {
+                    state.selectedIds = [clicked.id];
+                }
+            }
+            state.selectedEntityId = state.selectedIds.length > 0 ? state.selectedIds[state.selectedIds.length - 1] : null;
+            
             state.isMovingEntity = true;
             // Temporarily ignore the moving entity in snap to avoid self-snapping loops while dragging
             let sPt = snap(wPt);
@@ -2175,15 +2654,53 @@ canvas.addEventListener('mousedown', (e) => {
             state.startY = sPt.y;
             saveState();
         } else {
-            state.selectedEntityId = null;
+            if (!e.ctrlKey) {
+                state.selectedEntityId = null;
+                state.selectedIds = [];
+            }
+            state.isBoxSelecting = true;
+            state.selectionBox = { startX: screenX, startY: screenY, endX: screenX, endY: screenY };
         }
         updatePropertyPanel();
         requestRedraw();
         return;
     }
 
+    if (state.tool === 'influence') {
+        let clicked = null;
+        for (let i = state.entities.length - 1; i >= 0; i--) {
+            if (EntityLogic[state.entities[i].type].hitTest(wPt, state.entities[i])) {
+                clicked = state.entities[i];
+                break;
+            }
+        }
+        if (clicked) {
+            const supportTypes = ['pin', 'roller', 'fixed', 'hinge', 'spring', 'rotspr'];
+            if (supportTypes.includes(clicked.type)) {
+                const component = prompt("Influence Line target: Support.\nWhich force component to track? (Type: Rx, Ry, or Mz)", "Ry");
+                if (component) runInfluenceLine(clicked, 'reaction', component.toLowerCase(), null);
+            } else if (clicked.type === 'beam') {
+                const dx = clicked.p2.x - clicked.p1.x;
+                const dy = clicked.p2.y - clicked.p1.y;
+                const L = Math.hypot(dx, dy);
+                const dxp = wPt.x - clicked.p1.x;
+                const dyp = wPt.y - clicked.p1.y;
+                let ratio = (dxp * dx + dyp * dy) / (L * L);
+                if (ratio < 0) ratio = 0;
+                if (ratio > 1) ratio = 1;
+                
+                const ratioDisplay = (ratio * 100).toFixed(1) + "%";
+                const component = prompt(`Influence Line target: Beam (at ${ratioDisplay} length).\nWhich internal force to track? (Type: V or M)`, "M");
+                if (component) runInfluenceLine(clicked, 'internal', component.toLowerCase(), ratio);
+            } else {
+                alert("Please click on a Support or a Beam to target an influence line.");
+            }
+        }
+        return;
+    }
+
     // Multi-click tools
-    if (['beam', 'arc', 'parabola', 'distload', 'dimension', 'angdim'].includes(state.tool)) {
+    if (['beam', 'arc', 'parabola', 'distload', 'dimension', 'angdim', 'line'].includes(state.tool)) {
         if (state.drawingStep === 0) {
             saveState();
             state.drawingStep = 1;
@@ -2196,6 +2713,7 @@ canvas.addEventListener('mousedown', (e) => {
                 angle: 0,
                 magnitude: ['distload'].includes(state.tool) ? '10' : undefined
             };
+            if (state.tool === 'beam') state.tempEntity.isTruss = false;
             
             // Automatically make the start point a tracking reference
             snapMode.trackRef = { ...state.tempEntity.p1 };
@@ -2226,6 +2744,7 @@ canvas.addEventListener('mousedown', (e) => {
                     }
                 } else {
                     state.entities.push({...state.tempEntity});
+                    state.selectedIds = [state.tempEntity.id];
                     state.selectedEntityId = state.tempEntity.id;
                     state.tempEntity = null;
                     state.drawingStep = 0;
@@ -2282,6 +2801,7 @@ canvas.addEventListener('mousedown', (e) => {
                 state.tempEntity.p3 = state.tool === 'angdim' ? snap(wPt) : wPt;
             }
             state.entities.push({...state.tempEntity});
+            state.selectedIds = [state.tempEntity.id];
             state.selectedEntityId = state.tempEntity.id;
             state.tempEntity = null;
             state.drawingStep = 0;
@@ -2312,6 +2832,7 @@ canvas.addEventListener('mousedown', (e) => {
         }
 
         state.entities.push(newEnt);
+        state.selectedIds = [newEnt.id];
         state.selectedEntityId = newEnt.id;
         
         document.querySelector(`.tool-btn[data-tool="select"]`).click();
@@ -2325,9 +2846,20 @@ window.addEventListener('mousemove', (e) => {
     const screenX = e.clientX - rect.left;
     const screenY = e.clientY - rect.top;
     
+    // Save world coordinates for data inspection
+    const cursorWorldPt = s2w({ x: screenX, y: screenY });
+    state.mouseWorldPos = cursorWorldPt;
+
     if (state.tool === 'export-area' && state.exportBox) {
         state.exportBox.w = screenX - state.exportBox.x;
         state.exportBox.h = screenY - state.exportBox.y;
+        requestRedraw();
+        return;
+    }
+
+    if (state.isBoxSelecting && state.selectionBox) {
+        state.selectionBox.endX = screenX;
+        state.selectionBox.endY = screenY;
         requestRedraw();
         return;
     }
@@ -2368,13 +2900,13 @@ window.addEventListener('mousemove', (e) => {
         return;
     }
 
-    if (state.isMovingEntity && state.selectedEntityId) {
-        // Exclude the currently moving entity from snap consideration temporarily
-        const ent = state.entities.find(e => e.id === state.selectedEntityId);
-        if (ent) {
+    if (state.isMovingEntity && state.selectedIds.length > 0) {
+        // Exclude all currently moving entities from snap consideration temporarily
+        const movingEnts = state.entities.filter(e => state.selectedIds.includes(e.id));
+        if (movingEnts.length > 0) {
             // we override snap bypass for self
             const oldEntities = state.entities;
-            state.entities = state.entities.filter(e => e.id !== state.selectedEntityId);
+            state.entities = state.entities.filter(e => !state.selectedIds.includes(e.id));
             
             state.cursorPt = snap(wPt);
             
@@ -2383,7 +2915,9 @@ window.addEventListener('mousemove', (e) => {
             const dx = state.cursorPt.x - state.startX;
             const dy = state.cursorPt.y - state.startY;
             if (dx !== 0 || dy !== 0) {
-                EntityLogic[ent.type].move(ent, dx, dy);
+                movingEnts.forEach(ent => {
+                    EntityLogic[ent.type].move(ent, dx, dy);
+                });
                 state.startX = state.cursorPt.x;
                 state.startY = state.cursorPt.y;
             }
@@ -2492,6 +3026,54 @@ window.addEventListener('mouseup', (e) => {
         return;
     }
     
+    if (state.isBoxSelecting && state.selectionBox) {
+        const box = state.selectionBox;
+        // Normalize box
+        const x1 = Math.min(box.startX, box.endX);
+        const y1 = Math.min(box.startY, box.endY);
+        const x2 = Math.max(box.startX, box.endX);
+        const y2 = Math.max(box.startY, box.endY);
+        
+        const pt1 = s2w({x: x1, y: y1});
+        const pt2 = s2w({x: x2, y: y2});
+
+        const left = Math.min(pt1.x, pt2.x);
+        const right = Math.max(pt1.x, pt2.x);
+        const top = Math.min(pt1.y, pt2.y);
+        const bottom = Math.max(pt1.y, pt2.y);
+        
+        let selectedNew = [];
+        state.entities.forEach(ent => {
+            if (ent.p1) {
+                // simple bounding box check
+                let pts = [ent.p1];
+                if (ent.p2) pts.push(ent.p2);
+                if (ent.p3) pts.push(ent.p3);
+                
+                // check if ALL points are inside the box
+                let allIn = pts.every(p => p.x >= left && p.x <= right && p.y >= top && p.y <= bottom);
+                if (allIn) {
+                    selectedNew.push(ent.id);
+                }
+            }
+        });
+        
+        if (e.ctrlKey) {
+            selectedNew.forEach(id => {
+                if (!state.selectedIds.includes(id)) state.selectedIds.push(id);
+            });
+        } else {
+            state.selectedIds = selectedNew;
+        }
+        
+        state.selectedEntityId = state.selectedIds.length > 0 ? state.selectedIds[state.selectedIds.length - 1] : null;
+        
+        state.isBoxSelecting = false;
+        state.selectionBox = null;
+        updatePropertyPanel();
+        requestRedraw();
+    }
+    
     if (state.isDraggingVp) {
         state.isDraggingVp = false;
     }
@@ -2533,3 +3115,147 @@ canvas.addEventListener('wheel', (e) => {
 // Init setup
 resize();
 saveState();
+
+// -------- Influence Line Logic --------
+function runInfluenceLine(targetEnt, type, component, ratio) {
+    if (typeof buildFEModel !== 'function' || typeof solveFEModel !== 'function') {
+        alert("Solver not built/loaded."); return;
+    }
+    const STEPS = 100;
+    const influenceData = [];
+    const pointsData = [];
+    const walkableSegments = state.entities.filter(e => e.type === 'beam');
+    if (walkableSegments.length === 0) return;
+
+    let totalLength = 0;
+    walkableSegments.forEach(b => {
+        b._len = Math.hypot(b.p2.x - b.p1.x, b.p2.y - b.p1.y);
+        totalLength += b._len;
+    });
+
+    for (let i = 0; i <= STEPS; i++) {
+        const targetL = (i / STEPS) * totalLength;
+        let point = null;
+        let accumL = 0;
+        for (let b of walkableSegments) {
+            if (targetL >= accumL && targetL <= accumL + b._len + 1e-6) {
+                const r = (targetL - accumL) / b._len;
+                point = {
+                    x: b.p1.x + (b.p2.x - b.p1.x) * r,
+                    y: b.p1.y + (b.p2.y - b.p1.y) * r
+                };
+                break;
+            }
+            accumL += b._len;
+        }
+
+        if (!point) continue;
+
+        const baseEnts = state.entities.filter(e => !['force', 'distload', 'moment'].includes(e.type));
+        baseEnts.push({
+            id: 'inf-load',
+            type: 'force',
+            p1: { x: point.x, y: point.y - state.gridSize }, 
+            p2: point, // Force is applied at tip (p2) in this app
+            magnitude: 1, 
+            unit: '',
+            angle: Math.PI / 2
+        });
+
+        const model = buildFEModel(baseEnts, state.gridSize);
+        const results = solveFEModel(model);
+        if (!results.success) {
+            influenceData.push(0);
+            pointsData.push(point);
+            continue;
+        }
+
+        let val = 0;
+        if (type === 'reaction') {
+            const fePt = { x: targetEnt.p1.x / state.gridSize, y: -targetEnt.p1.y / state.gridSize };
+            const node = results.model.nodes.find(n => distSolver(n, fePt) < 0.05);
+            if (!node) console.log("Node not found!");
+            if (node && node.reactions) {
+                const alpha = node.supportAngle || 0;
+                const s_ang = Math.sin(-alpha);
+                const c_ang = Math.cos(-alpha);
+                const fx = node.reactions.fx || 0;
+                const fy = node.reactions.fy || 0;
+                if (component === 'rx') val = fx * c_ang + fy * s_ang;
+                else if (component === 'ry') val = -fx * s_ang + fy * c_ang;
+                else if (component === 'mz') val = node.reactions.mz || 0;
+            } else if (node) { console.log("Node found but no reactions!", node); }
+        } else if (type === 'internal') {
+            const fePt1 = { x: targetEnt.p1.x / state.gridSize, y: -targetEnt.p1.y / state.gridSize };
+            const fePt2 = { x: targetEnt.p2.x / state.gridSize, y: -targetEnt.p2.y / state.gridSize };
+            const targetFePt = {
+                 x: fePt1.x + (fePt2.x - fePt1.x) * ratio,
+                 y: fePt1.y + (fePt2.y - fePt1.y) * ratio
+            };
+            
+            let matchElem = null;
+            let subRatio = 0;
+            for (let el of results.model.elements) {
+                 const n1 = results.model.nodes[el.n1];
+                 const n2 = results.model.nodes[el.n2];
+                 const d = Math.hypot(n2.x - n1.x, n2.y - n1.y);
+                 const d1 = Math.hypot(targetFePt.x - n1.x, targetFePt.y - n1.y);
+                 const d2 = Math.hypot(n2.x - targetFePt.x, n2.y - targetFePt.y);
+                 if (Math.abs(d - (d1 + d2)) < 1e-4) {
+                     matchElem = el;
+                     subRatio = d1 / d;
+                     if (d1 < 1e-5 && subRatio === 0) continue; 
+                     break;
+                 }
+            }
+            if (!matchElem) {
+                matchElem = results.model.elements.find(el => {
+                    const n1 = results.model.nodes[el.n1];
+                    return Math.hypot(targetFePt.x - n1.x, targetFePt.y - n1.y) < 1e-3;
+                });
+                subRatio = 0;
+            }
+
+            if (matchElem && matchElem.forces) {
+                 const f = matchElem.forces; 
+                 const V1 = f.V1;
+                 const M1 = f.M1; 
+                 const L = Math.hypot(results.model.nodes[matchElem.n2].x - results.model.nodes[matchElem.n1].x, results.model.nodes[matchElem.n2].y - results.model.nodes[matchElem.n1].y);
+                 const x = subRatio * L;
+                 if (component === 'v') val = V1;
+                 else if (component === 'm') val = -M1 + V1 * x;
+            }
+        }
+        influenceData.push(val);
+        pointsData.push(point);
+    }
+    
+    state.activeDiagram = 'influence';
+    state.feResults = {
+        success: true,
+        isInfluence: true,
+        influencePoints: pointsData,
+        influenceValues: influenceData,
+        infTarget: { type, component, entity: targetEnt }
+    };
+    
+    document.getElementById('results-panel').classList.remove('hidden');
+    document.querySelectorAll('.diagram-toggle-btn').forEach(b => {
+        b.classList.remove('bg-indigo-600', 'text-white');
+        if (b.dataset.diagram === 'influence') {
+            b.classList.add('bg-indigo-600', 'text-white');
+            b.classList.remove('hidden');
+        } else {
+            b.classList.add('bg-slate-100', 'text-slate-600');
+        }
+    });
+
+    state.tool = 'select'; 
+    document.querySelectorAll('.tool-btn').forEach(b => { 
+        if(b.dataset.tool === 'select') b.classList.add('active');
+        else b.classList.remove('active');
+    });
+    
+    console.log("Influence Line calculated! Total points:", pointsData.length, "Vals:", influenceData);
+    requestRedraw();
+}

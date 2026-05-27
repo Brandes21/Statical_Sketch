@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Statics Sketcher - Documentation</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- KaTeX for Math rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js" onload="renderMathInElement(document.body, {delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}]});"></script>
+</head>
+<body class="bg-[#f8fafc] text-slate-800 font-sans antialiased min-h-screen">
+    
+    <!-- Header -->
+    <header class="bg-white border-b border-slate-200 h-14 flex items-center px-6 shadow-sm sticky top-0 z-50">
+        <div class="flex items-center gap-3">
+            <i data-lucide="book-open" class="text-blue-600"></i>
+            <h1 class="font-bold text-lg tracking-tight text-slate-700">Calculation Documentation</h1>
+        </div>
+        <div class="ml-auto">
+            <a href="index.html" class="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-blue-600 transition">
+                <i data-lucide="arrow-left" class="w-4 h-4"></i> Back to Sketcher
+            </a>
+        </div>
+    </header>
+
+    <!-- Content -->
+    <main class="max-w-4xl mx-auto py-10 px-6">
+        
+        <div class="bg-white shadow-sm rounded-xl border border-slate-200 p-8 mb-8">
+            <h2 class="text-2xl font-bold text-slate-900 mb-4 border-b border-slate-100 pb-2">1. General Finite Element (FE) Calculations</h2>
+            
+            <h3 class="text-lg font-semibold text-slate-800 mt-6 mb-2">1.1. Modeling Approach</h3>
+            <p class="text-slate-600 mb-4 leading-relaxed">
+                The core analysis engine utilizes the <strong>Direct Stiffness Method (DSM)</strong> for 2D frame elements based on Euler-Bernoulli beam theory. The structure is discretized into a series of nodes and beam elements. Each node in the 2D plane possesses three degrees of freedom (DOFs):
+            </p>
+            <ul class="list-disc pl-6 text-slate-600 mb-4 space-y-1">
+                <li>Translation in the global X-direction ($u_x$)</li>
+                <li>Translation in the global Y-direction ($u_y$)</li>
+                <li>Rotation about the Z-axis ($\theta_z$)</li>
+            </ul>
+
+            <h3 class="text-lg font-semibold text-slate-800 mt-6 mb-2">1.2. Stiffness Matrices</h3>
+            <p class="text-slate-600 mb-4 leading-relaxed">
+                For every element, a $6 \times 6$ local stiffness matrix $[\mathbf{k}_e]$ is formulated accounting for axial ($A, E$) and flexural ($I$) rigidities. Using a rotation transformation matrix $[\mathbf{T}]$, the local stiffness matrix is transformed into the global coordinate system:
+                $$[\mathbf{K}_e] = [\mathbf{T}]^T [\mathbf{k}_e] [\mathbf{T}]$$
+                These element matrices are subsequently assembled into the global stiffness matrix $[\mathbf{K}]$ representing the entire structure.
+            </p>
+
+            <h3 class="text-lg font-semibold text-slate-800 mt-6 mb-2">1.3. Loading & Solving</h3>
+            <p class="text-slate-600 mb-4 leading-relaxed">
+                Applied point forces and moments are directly assigned to the nodal force vector $\{\mathbf{F}\}$. For distributed loads along beam spans, they are converted into <strong>Equivalent Nodal Forces (ENF)</strong> using fixed-end moment and shear reaction formulations, which are applied to the boundary nodes of the affected elements.
+            </p>
+            <p class="text-slate-600 mb-4 leading-relaxed">
+                Boundary conditions (supports) are enforced using a penalty method or matrix reduction approach. The resulting system of linear equations is solved to obtain the nodal displacements $\{\mathbf{U}\}$:
+                $$[\mathbf{K}]\{\mathbf{U}\} = \{\mathbf{F}\}$$
+            </p>
+            <p class="text-slate-600 mb-4 leading-relaxed">
+                With the global displacements known, they are transformed back into local element displacements. Finally, the internal forces (Axial $N$, Shear $V$, Bending Moment $M$) at the element ends are extracted by multiplying the local displacement vector by the local stiffness matrix and subtracting the equivalent nodal forces.
+            </p>
+        </div>
+
+        <div class="bg-white shadow-sm rounded-xl border border-slate-200 p-8 mb-8">
+            <h2 class="text-2xl font-bold text-slate-900 mb-4 border-b border-slate-100 pb-2">2. Influence Lines Generation</h2>
+            
+            <h3 class="text-lg font-semibold text-slate-800 mt-6 mb-2">2.1. Definition</h3>
+            <p class="text-slate-600 mb-4 leading-relaxed">
+                An <strong>Influence Line</strong> illustrates the variation of a specific structural response (e.g., a support reaction, internal shear force, or bending moment at a fixed target point) as a moving concentrated unit load traverses across the structure.
+            </p>
+
+            <h3 class="text-lg font-semibold text-slate-800 mt-6 mb-2">2.2. Computational Algorithm</h3>
+            <p class="text-slate-600 mb-4 leading-relaxed">
+                Rather than relying on the kinematic Müller-Breslau principle, this application utilizes a robust <strong>Moving Unit Load (Brute Force)</strong> evaluation. This guarantees geometric accuracy independent of internal hinge kinematics. The calculation sequence is as follows:
+            </p>
+            <ol class="list-decimal pl-6 text-slate-600 mb-6 space-y-2">
+                <li><strong>Path Extraction:</strong> The algorithm identifies all connected horizontal and angled <code>beam</code> elements in the model to formulate a continuous, walkable path length ($L_{total}$).</li>
+                <li><strong>Discretization:</strong> The path is subdivided into 100 evaluation steps ($n = 100$).</li>
+                <li><strong>Iteration:</strong> A virtual downwards vertical load of magnitude $P = 1.0$ is injected into the model at each step position $x_i$.</li>
+                <li><strong>Analysis:</strong> The exact same FE Solver described in section 1 is executed independently for each of the 100 load positions.</li>
+                <li><strong>Data Mining:</strong> After each solve, the requested feature (e.g., reaction $R_y$ at Support 'A', or moment $M$ at $2.5m$ on Beam 'B') is precisely extracted holding the surrounding model state constant.</li>
+                <li><strong>Plotting:</strong> The 100 extracted values $\{v_0, v_1, ..., v_{100}\}$ are mapped to their corresponding geometric coordinates $(x_i, y_i)$ on the canvas, taking into account outward normals for perpendicular drawing on skewed beams.</li>
+            </ol>
+            
+            <div class="bg-indigo-50 border border-indigo-100 rounded-lg p-4 mt-6">
+                <div class="flex gap-3">
+                    <i data-lucide="info" class="text-indigo-600 shrink-0"></i>
+                    <p class="text-sm text-indigo-900">
+                        <strong>Visual Rendering Note:</strong> Positive peaks are drawn in one direction along the beam's geometric normal, while negative valleys are drawn oppositely. The magnitude multiplier is dynamically tied to the <code>diagram scale</code> slider for seamless reading!
+                    </p>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <script>
+        // Init Lucide icons
+        lucide.createIcons();
+    </script>
+</body>
+</html>
