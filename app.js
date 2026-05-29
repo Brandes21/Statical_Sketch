@@ -2879,7 +2879,7 @@ canvas.addEventListener('mousedown', (e) => {
             }
         }
         
-        const applySelection = (clicked) => {
+        const applySelection = (clicked, startMove = true) => {
             if (e.ctrlKey) {
                 if (state.selectedIds.includes(clicked.id)) {
                     state.selectedIds = state.selectedIds.filter(id => id !== clicked.id);
@@ -2893,21 +2893,23 @@ canvas.addEventListener('mousedown', (e) => {
             }
             state.selectedEntityId = state.selectedIds.length > 0 ? state.selectedIds[state.selectedIds.length - 1] : null;
             
-            state.isMovingEntity = true;
-            // Temporarily ignore the moving entity in snap to avoid self-snapping loops while dragging
-            let sPt = snap(wPt);
-            state.startX = sPt.x;
-            state.startY = sPt.y;
-            saveState();
+            if (startMove) {
+                state.isMovingEntity = true;
+                // Temporarily ignore the moving entity in snap to avoid self-snapping loops while dragging
+                let sPt = snap(wPt);
+                state.startX = sPt.x;
+                state.startY = sPt.y;
+                saveState();
+            }
             
             updatePropertyPanel();
             requestRedraw();
         };
 
         if (hitEntities.length === 1) {
-            applySelection(hitEntities[0]);
+            applySelection(hitEntities[0], true);
         } else if (hitEntities.length > 1) {
-            showMultiPickMenu(hitEntities, e.clientX, e.clientY, applySelection);
+            showMultiPickMenu(hitEntities, e.clientX, e.clientY, (clicked) => applySelection(clicked, false));
             return; // skip requestRedraw/updatePropertyPanel
         } else {
             if (!e.ctrlKey) {
