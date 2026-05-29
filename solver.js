@@ -149,10 +149,10 @@ function buildFEModel(entities, gridSize) {
                             type: ent.isTruss ? 'truss' : 'frame',
                             n1: n1,
                             n2: n2,
-                            // Default generic properties for a proxy sketch solver
-                            E: 200e9,   // Young's Modulus
-                            A: 0.01,    // Area
-                            I: 1e-4     // Moment of Inertia
+                            // Use custom properties if provided, else defaults
+                            E: ent.sectionDefault === false && ent.E ? ent.E : 200e9,
+                            A: ent.sectionDefault === false && ent.A ? ent.A : 0.01,
+                            I: ent.sectionDefault === false && ent.I ? ent.I : 1e-4
                         });
                     }
                 }

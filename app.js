@@ -29,6 +29,8 @@ let state = {
     feResults: null,
     activeDiagram: null,
     diagramScale: 1.0,
+    diagramMinMaxOnly: false,
+    diagramTextSize: 10,
     hoveredDiagramValue: null, // format: { pt: {x,y}, value: number, label: string }
     mouseWorldPos: null,
     
@@ -124,6 +126,7 @@ function updatePropertyPanel() {
     const lineCont = document.getElementById('prop-line-container');
     const arrowCont = document.getElementById('prop-arrow-container');
     const stiffnessCont = document.getElementById('prop-stiffness-container');
+    const sectionCont = document.getElementById('prop-section-container');
     
     magCont.classList.add('hidden');
     distRangeCont.classList.add('hidden');
@@ -137,6 +140,7 @@ function updatePropertyPanel() {
     if (lineCont) lineCont.classList.add('hidden');
     if (arrowCont) arrowCont.classList.add('hidden');
     if (stiffnessCont) stiffnessCont.classList.add('hidden');
+    if (sectionCont) sectionCont.classList.add('hidden');
     
     if (['force', 'moment', 'distload'].includes(ent.type)) {
         if (ent.type === 'distload') {
@@ -212,6 +216,22 @@ function updatePropertyPanel() {
     if (['beam', 'arc', 'parabola'].includes(ent.type)) {
         beamRotCont.classList.remove('hidden');
         document.getElementById('prop-beam-rot-angle').value = 0;
+
+        if (sectionCont) {
+            sectionCont.classList.remove('hidden');
+            const isDefault = ent.sectionDefault !== false; // Default true
+            document.getElementById('prop-section-default').checked = isDefault;
+            if (isDefault) {
+                document.getElementById('prop-section-custom').classList.add('hidden');
+            } else {
+                document.getElementById('prop-section-custom').classList.remove('hidden');
+            }
+            // Display values in MPa, mm2, mm4. 
+            // Internal storage remains Pa, m2, m4.
+            document.getElementById('prop-section-e').value = (ent.E || 200e9) / 1e6;
+            document.getElementById('prop-section-a').value = (ent.A || 0.01) * 1e6;
+            document.getElementById('prop-section-i').value = (ent.I || 1e-4) * 1e12;
+        }
         
         if (ent.type === 'beam' && document.getElementById('prop-beam-type')) {
             document.getElementById('prop-beam-type').parentElement.classList.remove('hidden');
@@ -244,6 +264,8 @@ function updatePropertyPanel() {
         document.getElementById('prop-dim-units').checked = ent.dimUnits !== false; // Default true
         document.getElementById('prop-dim-decimals').value = ent.dimDecimals !== undefined ? ent.dimDecimals : (ent.type === 'angdim' ? 1 : 3);
         document.getElementById('prop-dim-lines').checked = ent.dimLines !== false; // Default true
+        document.getElementById('prop-dim-short-lines').checked = ent.dimShortLines === true; // Default false
+        document.getElementById('prop-dim-short-length').value = ent.dimShortLength !== undefined ? ent.dimShortLength : 12;
     }
 
     if (['textLabel', 'force'].includes(ent.type) && textCont) {
@@ -383,7 +405,40 @@ document.getElementById('prop-length').addEventListener('input', (e) => {
     });
 });
 
-['prop-dim-text', 'prop-dim-units', 'prop-dim-decimals', 'prop-dim-lines'].forEach(id => {
+['prop-section-default', 'prop-section-e', 'prop-section-a', 'prop-section-i'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const eventName = id === 'prop-section-default' ? 'change' : 'input';
+    el.addEventListener(eventName, (e) => {
+        updateSelectedEntities(ent => {
+            if (['beam', 'arc', 'parabola'].includes(ent.type)) {
+                if (id === 'prop-section-default') {
+                    ent.sectionDefault = e.target.checked;
+                    if (e.target.checked) {
+                        document.getElementById('prop-section-custom').classList.add('hidden');
+                        delete ent.E;
+                        delete ent.A;
+                        delete ent.I;
+                    } else {
+                        document.getElementById('prop-section-custom').classList.remove('hidden');
+                        // Initialize them if they don't exist
+                        ent.E = ent.E || 200e9;
+                        ent.A = ent.A || 0.01;
+                        ent.I = ent.I || 1e-4;
+                    }
+                } else if (id === 'prop-section-e') ent.E = parseFloat(e.target.value) * 1e6; // MPa to Pa
+                else if (id === 'prop-section-a') ent.A = parseFloat(e.target.value) / 1e6; // mm2 to m2
+                else if (id === 'prop-section-i') ent.I = parseFloat(e.target.value) / 1e12; // mm4 to m4
+            }
+        });
+        // Clear cached solver results when stiffness changes
+        if (id !== 'prop-section-default' || e.target.checked === false) {
+            state.feResults = null;
+        }
+    });
+});
+
+['prop-dim-text', 'prop-dim-units', 'prop-dim-decimals', 'prop-dim-lines', 'prop-dim-short-lines', 'prop-dim-short-length'].forEach(id => {
     document.getElementById(id).addEventListener('input', (e) => {
         updateSelectedEntities(ent => {
             if (['dimension', 'angdim'].includes(ent.type)) {
@@ -394,6 +449,11 @@ document.getElementById('prop-length').addEventListener('input', (e) => {
                     ent.dimDecimals = isNaN(dec) ? (ent.type === 'angdim' ? 1 : 3) : dec;
                 }
                 if (id === 'prop-dim-lines') ent.dimLines = e.target.checked;
+                if (id === 'prop-dim-short-lines') ent.dimShortLines = e.target.checked;
+                if (id === 'prop-dim-short-length') {
+                    const len = parseInt(e.target.value);
+                    ent.dimShortLength = isNaN(len) ? 12 : len;
+                }
             }
         });
     });
@@ -780,6 +840,33 @@ if (diagScaleSlider) {
     });
 }
 
+const diagMinMaxCb = document.getElementById('diagram-minmax-cb');
+if (diagMinMaxCb) {
+    diagMinMaxCb.addEventListener('change', (e) => {
+        state.diagramMinMaxOnly = e.target.checked;
+        requestRedraw();
+    });
+}
+
+const diagTextSizeSlider = document.getElementById('diagram-text-size-slider');
+if (diagTextSizeSlider) {
+    diagTextSizeSlider.addEventListener('input', (e) => {
+        state.diagramTextSize = parseInt(e.target.value) || 12;
+        requestRedraw();
+    });
+    diagTextSizeSlider.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const step = parseInt(diagTextSizeSlider.step) || 1;
+        let val = parseInt(diagTextSizeSlider.value);
+        if (e.deltaY < 0) val += step;
+        else val -= step;
+        val = Math.max(parseInt(diagTextSizeSlider.min), Math.min(parseInt(diagTextSizeSlider.max), val));
+        diagTextSizeSlider.value = val;
+        state.diagramTextSize = val;
+        requestRedraw();
+    });
+}
+
 // Project Save / Load Logic
 document.getElementById('btn-save-proj').addEventListener('click', async () => {
     const dataStr = JSON.stringify(state.entities);
@@ -891,7 +978,7 @@ function doExport(cropBox = null) {
     }
     
     if (state.feResults && state.feResults.success && state.activeDiagram && typeof drawFEDiagrams === 'function') {
-        drawFEDiagrams(ctx, state.feResults, state.activeDiagram, state.diagramScale, state.mouseWorldPos);
+        drawFEDiagrams(ctx, state.feResults, state.activeDiagram, state.diagramScale, state.mouseWorldPos, state);
     }
     
     ctx.restore();
@@ -2054,13 +2141,18 @@ const EntityLogic = {
                 const gap = 4;
                 const dirX = offset >= 0 ? 1 : -1;
                 
+                // If short lines, the extension only goes down a small amount rather than all the way to p1/p2
+                const shortLen = ent.dimShortLength !== undefined ? ent.dimShortLength : 12;
+                const startOff1 = ent.dimShortLines ? offset - (offset >= 0 ? shortLen : -shortLen) : gap * dirX;
+                const startOff2 = ent.dimShortLines ? offset - (offset >= 0 ? shortLen : -shortLen) : gap * dirX;
+
                 ctx.beginPath();
-                ctx.moveTo(ent.p1.x + nx * gap * dirX, ent.p1.y + ny * gap * dirX);
+                ctx.moveTo(ent.p1.x + nx * startOff1, ent.p1.y + ny * startOff1);
                 ctx.lineTo(ent.p1.x + nx * extOffset, ent.p1.y + ny * extOffset);
                 ctx.stroke();
 
                 ctx.beginPath();
-                ctx.moveTo(ent.p2.x + nx * gap * dirX, ent.p2.y + ny * gap * dirX);
+                ctx.moveTo(ent.p2.x + nx * startOff2, ent.p2.y + ny * startOff2);
                 ctx.lineTo(ent.p2.x + nx * extOffset, ent.p2.y + ny * extOffset);
                 ctx.stroke();
             }
@@ -2197,10 +2289,23 @@ const EntityLogic = {
             } else {
                 // draw lines when done
                 if (ent.dimLines !== false) {
+                    const shortLen = ent.dimShortLength !== undefined ? ent.dimShortLength : 12;
+
                     ctx.beginPath();
-                    ctx.moveTo(ent.p1.x, ent.p1.y);
+                    // First line
+                    if (ent.dimShortLines) {
+                        ctx.moveTo(ent.p1.x + Math.cos(a1)*(radius-shortLen), ent.p1.y + Math.sin(a1)*(radius-shortLen));
+                    } else {
+                        ctx.moveTo(ent.p1.x, ent.p1.y);
+                    }
                     ctx.lineTo(ent.p1.x + Math.cos(a1)*(radius+10), ent.p1.y + Math.sin(a1)*(radius+10));
-                    ctx.moveTo(ent.p1.x, ent.p1.y);
+                    
+                    // Second line
+                    if (ent.dimShortLines) {
+                        ctx.moveTo(ent.p1.x + Math.cos(a2)*(radius-shortLen), ent.p1.y + Math.sin(a2)*(radius-shortLen));
+                    } else {
+                        ctx.moveTo(ent.p1.x, ent.p1.y);
+                    }
                     ctx.lineTo(ent.p1.x + Math.cos(a2)*(radius+10), ent.p1.y + Math.sin(a2)*(radius+10));
                     ctx.stroke();
                 }
@@ -2586,7 +2691,7 @@ function render() {
 
     // Draw FE Diagram overlays
     if (state.feResults && state.feResults.success && state.activeDiagram && typeof drawFEDiagrams === 'function') {
-        drawFEDiagrams(ctx, state.feResults, state.activeDiagram, state.diagramScale, state.mouseWorldPos);
+        drawFEDiagrams(ctx, state.feResults, state.activeDiagram, state.diagramScale, state.mouseWorldPos, state);
     }
 
     ctx.globalAlpha = 1.0;
@@ -2661,6 +2766,71 @@ function render() {
     renderQueued = false;
 }
 
+function showMultiPickMenu(entities, x, y, callback) {
+    const existing = document.getElementById('multipick-menu');
+    if (existing) existing.remove();
+    
+    const menu = document.createElement('div');
+    menu.id = 'multipick-menu';
+    menu.className = 'absolute bg-white border border-slate-300 rounded shadow-xl z-50 text-sm overflow-hidden min-w-[120px]';
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+    
+    const header = document.createElement('div');
+    header.className = 'bg-slate-50 px-3 py-1.5 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-default';
+    header.innerText = 'Select Element';
+    menu.appendChild(header);
+    
+    entities.forEach(ent => {
+        const item = document.createElement('div');
+        item.className = 'px-3 py-2 cursor-pointer hover:bg-blue-50 hover:text-blue-700 transition flex items-center justify-between border-b border-slate-100 last:border-0';
+        
+        let label = ent.type.charAt(0).toUpperCase() + ent.type.slice(1);
+        if (ent.type === 'beam') label = 'Beam';
+        else if (ent.type === 'distload') label = 'Dist. Load';
+        else if (ent.type === 'rotspr') label = 'Rot. Spring';
+        
+        const textSpan = document.createElement('span');
+        textSpan.className = 'font-medium';
+        textSpan.innerText = label;
+        item.appendChild(textSpan);
+        
+        const idSpan = document.createElement('span');
+        idSpan.className = 'text-xs text-slate-400 ml-3';
+        idSpan.innerText = `id: ${ent.id}`;
+        item.appendChild(idSpan);
+        
+        // Let it handle clicks natively
+        item.addEventListener('mousedown', (e) => { e.stopPropagation(); });
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            menu.remove();
+            // Call the continuation of the select logic
+            callback(ent);
+        });
+        
+        // Highlight entity on hover
+        item.addEventListener('mouseenter', () => {
+            // Draw a quick bounding box or highlight over it
+            // Simple way is to just briefly add it to a temporary hover list but easiest is just let canvas be
+        });
+        
+        menu.appendChild(item);
+    });
+    
+    document.body.appendChild(menu);
+    
+    // Auto-close if clicked elsewhere
+    const closeListener = (e) => {
+        if (!menu.contains(e.target)) {
+            menu.remove();
+            document.removeEventListener('mousedown', closeListener, true);
+        }
+    };
+    
+    document.addEventListener('mousedown', closeListener, true);
+}
+
 // Canvas Interactions
 canvas.addEventListener('mousedown', (e) => {
     const rect = canvas.getBoundingClientRect();
@@ -2702,15 +2872,14 @@ canvas.addEventListener('mousedown', (e) => {
             return;
         }
 
-        let clicked = null;
+        let hitEntities = [];
         for (let i = state.entities.length - 1; i >= 0; i--) {
             if (EntityLogic[state.entities[i].type].hitTest(wPt, state.entities[i])) {
-                clicked = state.entities[i];
-                break;
+                hitEntities.push(state.entities[i]);
             }
         }
         
-        if (clicked) {
+        const applySelection = (clicked) => {
             if (e.ctrlKey) {
                 if (state.selectedIds.includes(clicked.id)) {
                     state.selectedIds = state.selectedIds.filter(id => id !== clicked.id);
@@ -2730,6 +2899,16 @@ canvas.addEventListener('mousedown', (e) => {
             state.startX = sPt.x;
             state.startY = sPt.y;
             saveState();
+            
+            updatePropertyPanel();
+            requestRedraw();
+        };
+
+        if (hitEntities.length === 1) {
+            applySelection(hitEntities[0]);
+        } else if (hitEntities.length > 1) {
+            showMultiPickMenu(hitEntities, e.clientX, e.clientY, applySelection);
+            return; // skip requestRedraw/updatePropertyPanel
         } else {
             if (!e.ctrlKey) {
                 state.selectedEntityId = null;
@@ -2744,14 +2923,14 @@ canvas.addEventListener('mousedown', (e) => {
     }
 
     if (state.tool === 'influence') {
-        let clicked = null;
+        let hitEntities = [];
         for (let i = state.entities.length - 1; i >= 0; i--) {
             if (EntityLogic[state.entities[i].type].hitTest(wPt, state.entities[i])) {
-                clicked = state.entities[i];
-                break;
+                hitEntities.push(state.entities[i]);
             }
         }
-        if (clicked) {
+        
+        const handleInfluencePick = (clicked) => {
             const supportTypes = ['pin', 'roller', 'fixed', 'hinge', 'spring', 'rotspr'];
             if (supportTypes.includes(clicked.type)) {
                 const component = prompt("Influence Line target: Support.\nWhich force component to track? (Type: Rx, Ry, or Mz)", "Ry");
@@ -2772,6 +2951,14 @@ canvas.addEventListener('mousedown', (e) => {
             } else {
                 alert("Please click on a Support or a Beam to target an influence line.");
             }
+        };
+
+        if (hitEntities.length === 1) {
+            handleInfluencePick(hitEntities[0]);
+        } else if (hitEntities.length > 1) {
+            // Optional: filter out valid targets to avoid clicking through loads? 
+            // We can just show all of them for consistency.
+            showMultiPickMenu(hitEntities, e.clientX, e.clientY, handleInfluencePick);
         }
         return;
     }
@@ -3198,7 +3385,7 @@ function runInfluenceLine(targetEnt, type, component, ratio) {
     if (typeof buildFEModel !== 'function' || typeof solveFEModel !== 'function') {
         alert("Solver not built/loaded."); return;
     }
-    const STEPS = 100;
+    const STEPS = 1000;
     const influenceData = [];
     const pointsData = [];
     const walkableSegments = state.entities.filter(e => e.type === 'beam');

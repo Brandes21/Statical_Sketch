@@ -1,5 +1,8 @@
-function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = null) {
+function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = null, appState = null) {
     if (!results || !results.success || !activeDiagram) return;
+    
+    const minMaxOnly = appState ? appState.diagramMinMaxOnly : false;
+    const textSize = appState && appState.diagramTextSize ? appState.diagramTextSize : 10;
 
     if (activeDiagram === 'influence' && results.isInfluence) {
         if (!results.influencePoints || results.influencePoints.length === 0) return;
@@ -55,7 +58,7 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
         ctx.fill();
 
         ctx.fillStyle = '#4f46e5';
-        ctx.font = `${12/s}px monospace`;
+        ctx.font = `${textSize/s}px monospace`;
         ctx.textAlign = 'center';
         if (pPeak > 1e-3) {
             const pt = pts[pPeakIdx];
@@ -109,7 +112,7 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
                 ctx.stroke();
 
                 ctx.fillStyle = 'black';
-                ctx.font = `bold ${12/s}px monospace`;
+                ctx.font = `bold ${textSize/s}px monospace`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = hv > -1e-6 ? 'bottom' : 'top';
                 const yOff = hv > -1e-6 ? -8/s : 8/s;
@@ -130,6 +133,10 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
     let maxN = 1e-9;
     let maxV = 1e-9;
     let maxM = 1e-9;
+
+    let minAfdVal = Infinity;
+    let minSfdVal = Infinity;
+    let minBmdVal = Infinity;
     
     model.nodes.forEach(n => {
         const d = Math.hypot(n.ux, n.uy);
@@ -142,6 +149,13 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
         maxV = Math.max(maxV, Math.abs(f.V1), Math.abs(f.V2));
         maxM = Math.max(maxM, Math.abs(f.M1), Math.abs(f.M2));
         
+        if (Math.abs(f.N1) > 1e-3) minAfdVal = Math.min(minAfdVal, Math.abs(f.N1));
+        if (Math.abs(f.N2) > 1e-3) minAfdVal = Math.min(minAfdVal, Math.abs(f.N2));
+        if (Math.abs(f.V1) > 1e-3) minSfdVal = Math.min(minSfdVal, Math.abs(f.V1));
+        if (Math.abs(f.V2) > 1e-3) minSfdVal = Math.min(minSfdVal, Math.abs(f.V2));
+        if (Math.abs(f.M1) > 1e-3) minBmdVal = Math.min(minBmdVal, Math.abs(f.M1));
+        if (Math.abs(f.M2) > 1e-3) minBmdVal = Math.min(minBmdVal, Math.abs(f.M2));
+        
         // Also check intermediate moments for distributed loads
         if (activeDiagram === 'bmd') {
             const Lfe = Math.hypot(model.nodes[el.n2].x - model.nodes[el.n1].x, model.nodes[el.n2].y - model.nodes[el.n1].y);
@@ -152,6 +166,7 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
                     const xLoc = (i/20) * Lfe;
                     const mLoc = m1 + f.V1 * xLoc - w * xLoc * xLoc / 2;
                     maxM = Math.max(maxM, Math.abs(mLoc));
+                    if (Math.abs(mLoc) > 1e-3) minBmdVal = Math.min(minBmdVal, Math.abs(mLoc));
                 }
             }
         }
@@ -310,12 +325,12 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
             ctx.arc(hoverData.x, hoverData.y, 4/s, 0, Math.PI*2);
             ctx.fill();
             
-            ctx.font = `bold ${12/s}px monospace`;
+            ctx.font = `bold ${textSize/s}px monospace`;
             ctx.textAlign = 'center';
             const label = (hoverData.disp * 1000).toFixed(3) + " mm";
             const tw = ctx.measureText(label).width;
             ctx.fillStyle = 'rgba(255,255,255,0.8)';
-            ctx.fillRect(hoverData.x - tw/2 - 2/s, hoverData.y - 20/s, tw + 4/s, 12/s);
+            ctx.fillRect(hoverData.x - tw/2 - 2/s, hoverData.y - 20/s, tw + 4/s, textSize/s);
             
             ctx.fillStyle = 'black';
             ctx.fillText(label, hoverData.x, hoverData.y - 14/s);
@@ -329,7 +344,7 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
         const scale = maxVal > 1e-12 ? vScale / maxVal : 0;
         
         ctx.lineWidth = 1.5 / s;
-        ctx.font = `${12/s}px monospace`;
+        ctx.font = `${textSize/s}px monospace`;
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'center';
         
@@ -415,8 +430,12 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
                 ctx.stroke();
                 
                 ctx.fillStyle = ctx.strokeStyle;
-                if (Math.abs(ax1) > 1e-3) ctx.fillText(ax1.toFixed(1), 0, y1 - Math.sign(y1)*10/s);
-                if (Math.abs(ax2) > 1e-3) ctx.fillText(ax2.toFixed(1), L, y2 - Math.sign(y2)*10/s);
+                if (!minMaxOnly || Math.abs(Math.abs(ax1) - maxVal) < 1e-3 || Math.abs(Math.abs(ax1) - minAfdVal) < 1e-3) {
+                    if (Math.abs(ax1) > 1e-3) ctx.fillText(ax1.toFixed(1), 0, y1 - Math.sign(y1)*10/s);
+                }
+                if (!minMaxOnly || Math.abs(Math.abs(ax2) - maxVal) < 1e-3 || Math.abs(Math.abs(ax2) - minAfdVal) < 1e-3) {
+                    if (Math.abs(ax2) > 1e-3) ctx.fillText(ax2.toFixed(1), L, y2 - Math.sign(y2)*10/s);
+                }
             } else if (activeDiagram === 'sfd') {
                 const y1 = -v1 * scale;
                 const y2 = -v2 * scale;
@@ -427,8 +446,12 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
                 ctx.stroke();
                 
                 ctx.fillStyle = ctx.strokeStyle;
-                if (Math.abs(v1) > 1e-3) ctx.fillText(v1.toFixed(1), 0, y1 - Math.sign(y1)*10/s);
-                if (Math.abs(v2) > 1e-3) ctx.fillText(v2.toFixed(1), L, y2 - Math.sign(y2)*10/s);
+                if (!minMaxOnly || Math.abs(Math.abs(v1) - maxVal) < 1e-3 || Math.abs(Math.abs(v1) - minSfdVal) < 1e-3) {
+                    if (Math.abs(v1) > 1e-3) ctx.fillText(v1.toFixed(1), 0, y1 - Math.sign(y1)*10/s);
+                }
+                if (!minMaxOnly || Math.abs(Math.abs(v2) - maxVal) < 1e-3 || Math.abs(Math.abs(v2) - minSfdVal) < 1e-3) {
+                    if (Math.abs(v2) > 1e-3) ctx.fillText(v2.toFixed(1), L, y2 - Math.sign(y2)*10/s);
+                }
             } else {
                 // BMD implies Parabola if w != 0
                 const w = (f.V1 + f.V2) / Lfe; // w uses FE length // Recover UDL intensity
@@ -464,10 +487,17 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
                 ctx.stroke();
                 
                 ctx.fillStyle = ctx.strokeStyle;
-                if (Math.abs(m1) > 1e-3) ctx.fillText(m1.toFixed(1), 0, y1 - Math.sign(y1)*10/s);
-                if (Math.abs(m2) > 1e-3) ctx.fillText(m2.toFixed(1), L, y2 - Math.sign(y2)*10/s);
+                
+                if (!minMaxOnly || Math.abs(Math.abs(m1) - maxVal) < 1e-3 || Math.abs(Math.abs(m1) - minBmdVal) < 1e-3) {
+                    if (Math.abs(m1) > 1e-3) ctx.fillText(m1.toFixed(1), 0, y1 - Math.sign(y1)*10/s);
+                }
+                if (!minMaxOnly || Math.abs(Math.abs(m2) - maxVal) < 1e-3 || Math.abs(Math.abs(m2) - minBmdVal) < 1e-3) {
+                    if (Math.abs(m2) > 1e-3) ctx.fillText(m2.toFixed(1), L, y2 - Math.sign(y2)*10/s);
+                }
                 if (Math.abs(w) > 1e-3 && xMax > 0.1 && xMax < (L-0.1)) {
-                     ctx.fillText(valMax.toFixed(1), xMax, maxMloc - Math.sign(maxMloc)*10/s);
+                    if (!minMaxOnly || Math.abs(Math.abs(valMax) - maxVal) < 1e-3 || Math.abs(Math.abs(valMax) - minBmdVal) < 1e-3) {
+                         ctx.fillText(valMax.toFixed(1), xMax, maxMloc - Math.sign(maxMloc)*10/s);
+                    }
                 }
             }
             
@@ -488,11 +518,11 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
                 
                 // Text background to ensure readability over grid/diagram
                 const label = hoverValue.toFixed(2);
-                ctx.font = `bold ${12/s}px monospace`;
+                ctx.font = `bold ${textSize/s}px monospace`;
                 const textWidth = ctx.measureText(label).width;
                 ctx.fillStyle = 'rgba(255,255,255,0.8)';
                 const sign = Math.sign(hoverY) !== 0 ? Math.sign(hoverY) : -1;
-                ctx.fillRect(hoverX - textWidth/2 - 2/s, hoverY + sign*5/s - 6/s, textWidth + 4/s, 12/s);
+                ctx.fillRect(hoverX - textWidth/2 - 2/s, hoverY + sign*5/s - 6/s, textWidth + 4/s, textSize/s);
                 
                 ctx.fillStyle = 'black';
                 ctx.fillText(label, hoverX, hoverY + sign*10/s);
@@ -508,7 +538,7 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
         const aScale = 50 / s; 
         
         ctx.lineWidth = 2 / s;
-        ctx.font = `${14/s}px monospace`;
+        ctx.font = `${(textSize+2)/s}px monospace`;
         ctx.fillStyle = '#dc2626'; // red-600
         ctx.strokeStyle = '#dc2626';
         ctx.textBaseline = 'middle';

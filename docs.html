@@ -78,11 +78,11 @@
             </p>
             <ol class="list-decimal pl-6 text-slate-600 mb-6 space-y-2">
                 <li><strong>Path Extraction:</strong> The algorithm identifies all connected horizontal and angled <code>beam</code> elements in the model to formulate a continuous, walkable path length ($L_{total}$).</li>
-                <li><strong>Discretization:</strong> The path is subdivided into 100 evaluation steps ($n = 100$).</li>
+                <li><strong>Discretization:</strong> The path is subdivided into 1000 evaluation steps ($n = 1000$).</li>
                 <li><strong>Iteration:</strong> A virtual downwards vertical load of magnitude $P = 1.0$ is injected into the model at each step position $x_i$.</li>
-                <li><strong>Analysis:</strong> The exact same FE Solver described in section 1 is executed independently for each of the 100 load positions.</li>
+                <li><strong>Analysis:</strong> The exact same FE Solver described in section 1 is executed independently for each of the 1000 load positions.</li>
                 <li><strong>Data Mining:</strong> After each solve, the requested feature (e.g., reaction $R_y$ at Support 'A', or moment $M$ at $2.5m$ on Beam 'B') is precisely extracted holding the surrounding model state constant.</li>
-                <li><strong>Plotting:</strong> The 100 extracted values $\{v_0, v_1, ..., v_{100}\}$ are mapped to their corresponding geometric coordinates $(x_i, y_i)$ on the canvas, taking into account outward normals for perpendicular drawing on skewed beams.</li>
+                <li><strong>Plotting:</strong> The 1000 extracted values $\{v_0, v_1, ..., v_{1000}\}$ are mapped to their corresponding geometric coordinates $(x_i, y_i)$ on the canvas, taking into account outward normals for perpendicular drawing on skewed beams.</li>
             </ol>
             
             <div class="bg-indigo-50 border border-indigo-100 rounded-lg p-4 mt-6">
@@ -90,6 +90,15 @@
                     <i data-lucide="info" class="text-indigo-600 shrink-0"></i>
                     <p class="text-sm text-indigo-900">
                         <strong>Visual Rendering Note:</strong> Positive peaks are drawn in one direction along the beam's geometric normal, while negative valleys are drawn oppositely. The magnitude multiplier is dynamically tied to the <code>diagram scale</code> slider for seamless reading!
+                    </p>
+                </div>
+            </div>
+
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mt-4">
+                <div class="flex gap-3">
+                    <i data-lucide="alert-triangle" class="text-amber-600 shrink-0"></i>
+                    <p class="text-sm text-amber-900">
+                        <strong>Important Note:</strong> When an Influence Line is being generated and displayed, all other applied forces, moments, and distributed loads on the structure are <strong>temporarily ignored</strong>. The resulting diagram strictly isolated the effect of the moving unit load ($P=1.0$) passing across the structure.
                     </p>
                 </div>
             </div>
