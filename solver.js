@@ -172,8 +172,9 @@ function buildFEModel(entities, gridSize) {
                 if (!nodes[nId].springs) nodes[nId].springs = [];
                 nodes[nId].springs.push({
                     type: ent.type,
-                    stiffness: ent.stiffness !== undefined ? parseFloat(ent.stiffness) : 1000,
+                    stiffness: ent.stiffness !== undefined ? parseFloat(ent.stiffness) : 1000, // For rotspr this is rotational
                     stiffnessTrans: ent.stiffnessTrans !== undefined ? parseFloat(ent.stiffnessTrans) : 0,
+                    stiffnessAxial: ent.stiffnessAxial !== undefined ? parseFloat(ent.stiffnessAxial) : 0,
                     angle: ent.angle || 0
                 });
             } else {
@@ -503,6 +504,18 @@ function solveFEModel(model) {
             for (const sp of n.springs) {
                 if (sp.type === 'rotspr') {
                     K[dofZ][dofZ] += sp.stiffness;
+                    
+                    const ang = sp.angle;
+                    const c = Math.cos(ang);
+                    const s = Math.sin(ang);
+                    
+                    const k_a = sp.stiffnessAxial || 0;
+                    const k_t = sp.stiffnessTrans || 0;
+                    
+                    K[dofX][dofX] += (k_t * c * c) + (k_a * s * s);
+                    K[dofY][dofY] += (k_t * s * s) + (k_a * c * c);
+                    K[dofX][dofY] += (k_t - k_a) * c * s;
+                    K[dofY][dofX] += (k_t - k_a) * c * s;
                 } else if (sp.type === 'spring') {
                     const ang = sp.angle;
                     const c = Math.cos(ang);
@@ -648,6 +661,22 @@ function solveFEModel(model) {
             for (const sp of n.springs) {
                 if (sp.type === 'rotspr') {
                     n.reactions.mz += -sp.stiffness * n.rz;
+                    
+                    const ang = sp.angle;
+                    const c = Math.cos(ang);
+                    const s = Math.sin(ang);
+                    
+                    const k_a = sp.stiffnessAxial || 0;
+                    const k_t = sp.stiffnessTrans || 0;
+                    
+                    const u_local_x = n.ux * c + n.uy * s;
+                    const u_local_y = -n.ux * s + n.uy * c;
+                    
+                    const r_local_x = -k_t * u_local_x;
+                    const r_local_y = -k_a * u_local_y;
+                    
+                    n.reactions.fx += r_local_x * c - r_local_y * s;
+                    n.reactions.fy += r_local_x * s + r_local_y * c;
                 } else if (sp.type === 'spring') {
                     const ang = sp.angle;
                     const c = Math.cos(ang);

@@ -35,6 +35,7 @@ let state = {
     mouseWorldPos: null,
     
     gridSize: 20,
+    symbolScale: 1.0,
     cursorPt: {x: 0, y: 0},
     isTypingDistance: false,
     distanceTrackDir: {x: 1, y: 1}
@@ -69,6 +70,9 @@ window.addEventListener('resize', resize);
 function applyEntityTransform(ctx, ent) {
     ctx.translate(ent.p1.x, ent.p1.y);
     if (ent.angle) ctx.rotate(ent.angle);
+    if (state.symbolScale && state.symbolScale !== 1.0) {
+        ctx.scale(state.symbolScale, state.symbolScale);
+    }
 }
 
 // GUI Properties Panel Logic
@@ -125,6 +129,7 @@ function updatePropertyPanel() {
     const textCont = document.getElementById('prop-text-container');
     const lineCont = document.getElementById('prop-line-container');
     const arrowCont = document.getElementById('prop-arrow-container');
+    const coordsysCont = document.getElementById('prop-coordsys-container');
     const stiffnessCont = document.getElementById('prop-stiffness-container');
     const sectionCont = document.getElementById('prop-section-container');
     
@@ -139,6 +144,7 @@ function updatePropertyPanel() {
     if (textCont) textCont.classList.add('hidden');
     if (lineCont) lineCont.classList.add('hidden');
     if (arrowCont) arrowCont.classList.add('hidden');
+    if (coordsysCont) coordsysCont.classList.add('hidden');
     if (stiffnessCont) stiffnessCont.classList.add('hidden');
     if (sectionCont) sectionCont.classList.add('hidden');
     
@@ -180,7 +186,7 @@ function updatePropertyPanel() {
         document.getElementById('prop-perpload').value = ent.perpLoad || '';
     }
     
-    if (['pin', 'roller', 'fixed', 'spring', 'rotspr', 'textLabel', 'force'].includes(ent.type)) {
+    if (['pin', 'roller', 'fixed', 'spring', 'rotspr', 'textLabel', 'force', 'coordsys'].includes(ent.type)) {
         angCont.classList.remove('hidden');
         document.getElementById('prop-angle').value = ent.angle ? Math.round(ent.angle * 180 / Math.PI) : 0;
     }
@@ -191,12 +197,16 @@ function updatePropertyPanel() {
         
         if (ent.type === 'rotspr') {
             document.getElementById('prop-stiffness-label').textContent = 'Rotational Stiffness (k)';
-            document.getElementById('prop-trans-stiffness-wrapper').classList.add('hidden');
+            document.getElementById('prop-trans-stiffness-wrapper').classList.remove('hidden');
+            document.getElementById('prop-axial-stiffness-wrapper').classList.remove('hidden');
+            document.getElementById('prop-stiffness-trans').value = ent.stiffnessTrans !== undefined ? ent.stiffnessTrans : 0;
+            document.getElementById('prop-stiffness-axial').value = ent.stiffnessAxial !== undefined ? ent.stiffnessAxial : 0;
             const unitSpan = document.querySelector('.prop-stiffness-unit');
             if (unitSpan) unitSpan.textContent = 'kNm/rad';
         } else {
             document.getElementById('prop-stiffness-label').textContent = 'Axial Stiffness (k)';
             document.getElementById('prop-trans-stiffness-wrapper').classList.remove('hidden');
+            document.getElementById('prop-axial-stiffness-wrapper').classList.add('hidden');
             document.getElementById('prop-stiffness-trans').value = ent.stiffnessTrans !== undefined ? ent.stiffnessTrans : 0;
             const unitSpan = document.querySelector('.prop-stiffness-unit');
             if (unitSpan) unitSpan.textContent = 'kN/m';
@@ -300,6 +310,20 @@ function updatePropertyPanel() {
             arrowCont.classList.add('hidden');
         }
     }
+
+    if (coordsysCont) {
+        if (ent.type === 'coordsys') {
+            coordsysCont.classList.remove('hidden');
+            document.getElementById('prop-coordsys-xtext').value = ent.xLabel !== undefined ? ent.xLabel : 'x';
+            document.getElementById('prop-coordsys-ytext').value = ent.yLabel !== undefined ? ent.yLabel : 'y';
+            document.getElementById('prop-coordsys-weight').value = ent.weight || 2;
+            document.getElementById('prop-coordsys-color').value = ent.color || '#000000';
+            document.getElementById('prop-coordsys-flip-x').checked = ent.flipX || false;
+            document.getElementById('prop-coordsys-flip-y').checked = ent.flipY || false;
+        } else {
+            coordsysCont.classList.add('hidden');
+        }
+    }
 }
 
 function updateSelectedEntities(callback) {
@@ -376,8 +400,16 @@ document.getElementById('prop-stiffness').addEventListener('input', (e) => {
 
 document.getElementById('prop-stiffness-trans').addEventListener('input', (e) => {
     updateSelectedEntities(ent => {
-        if (ent.type === 'spring') {
+        if (['spring', 'rotspr'].includes(ent.type)) {
             ent.stiffnessTrans = parseFloat(e.target.value) || 0;
+        }
+    });
+});
+
+document.getElementById('prop-stiffness-axial').addEventListener('input', (e) => {
+    updateSelectedEntities(ent => {
+        if (ent.type === 'rotspr') {
+            ent.stiffnessAxial = parseFloat(e.target.value) || 0;
         }
     });
 });
@@ -506,6 +538,24 @@ document.getElementById('prop-length').addEventListener('input', (e) => {
     });
 });
 
+['prop-coordsys-xtext', 'prop-coordsys-ytext', 'prop-coordsys-weight', 'prop-coordsys-color', 'prop-coordsys-flip-x', 'prop-coordsys-flip-y'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const eventName = ['prop-coordsys-color', 'prop-coordsys-xtext', 'prop-coordsys-ytext'].includes(id) ? 'input' : 'change';
+    el.addEventListener(eventName, (e) => {
+        updateSelectedEntities(ent => {
+            if (ent.type === 'coordsys') {
+                if (id === 'prop-coordsys-xtext') ent.xLabel = e.target.value;
+                if (id === 'prop-coordsys-ytext') ent.yLabel = e.target.value;
+                if (id === 'prop-coordsys-weight') ent.weight = parseFloat(e.target.value);
+                if (id === 'prop-coordsys-color') ent.color = e.target.value;
+                if (id === 'prop-coordsys-flip-x') ent.flipX = e.target.checked;
+                if (id === 'prop-coordsys-flip-y') ent.flipY = e.target.checked;
+            }
+        });
+    });
+});
+
 const typeEl = document.getElementById('prop-beam-type');
 if (typeEl) {
     typeEl.addEventListener('change', (e) => {
@@ -610,9 +660,15 @@ document.addEventListener('keydown', (e) => {
         if (snapMode.trackAxis && snapMode.trackRef && !['select', 'dimension'].includes(state.tool)) {
             // Smart tracking distance configuration has priority when actively tracking an axis!
             state.isTypingDistance = true;
+            let trackMult = 1;
+            if (snapMode.trackAxis.vx !== undefined) {
+                const dot = (state.cursorPt.x - snapMode.trackRef.x) * snapMode.trackAxis.vx + (state.cursorPt.y - snapMode.trackRef.y) * snapMode.trackAxis.vy;
+                trackMult = Math.sign(dot) || 1;
+            }
             state.distanceTrackDir = {
                 x: Math.sign(state.cursorPt.x - snapMode.trackRef.x) || 1,
-                y: Math.sign(state.cursorPt.y - snapMode.trackRef.y) || 1
+                y: Math.sign(state.cursorPt.y - snapMode.trackRef.y) || 1,
+                mult: trackMult
             };
             const lp = document.getElementById('cad-input-panel');
             const inp = document.getElementById('cad-input');
@@ -1108,6 +1164,11 @@ document.getElementById('cad-input').addEventListener('keydown', (e) => {
                     finalPt.x += dist * dirX;
                 } else if (snapMode.trackAxis === 'y') {
                     finalPt.y += dist * dirY;
+                } else if (snapMode.trackAxis.vx !== undefined) {
+                    let m = state.distanceTrackDir.mult;
+                    if (val < 0) m *= -1;
+                    finalPt.x += dist * m * snapMode.trackAxis.vx;
+                    finalPt.y += dist * m * snapMode.trackAxis.vy;
                 }
                 
                 state.isTypingDistance = false;
@@ -1254,7 +1315,8 @@ let styleSettings = {
     moment: { color: '#e74c3c', alpha: 1.0, rgba: 'rgba(231, 76, 60, 1.0)', weight: 2, text: 12 },
     dimension: { color: '#64748b', alpha: 1.0, rgba: 'rgba(100, 116, 139, 1.0)', weight: 1, text: 12 },
     angdim: { color: '#64748b', alpha: 1.0, rgba: 'rgba(100, 116, 139, 1.0)', weight: 1, text: 12 },
-    textLabel: { color: '#000000', alpha: 1.0, rgba: 'rgba(0, 0, 0, 1.0)', text: 16 }
+    textLabel: { color: '#000000', alpha: 1.0, rgba: 'rgba(0, 0, 0, 1.0)', text: 16 },
+    coordsys: { color: '#000000', alpha: 1.0, rgba: 'rgba(0, 0, 0, 1.0)', weight: 2, text: 14 }
 };
 
 // UI Style Settings Binding
@@ -1316,6 +1378,31 @@ const buildStyleUI = () => {
         });
     }
 
+    const gridSizeEl = document.getElementById('setting-grid-size');
+    if (gridSizeEl) {
+        gridSizeEl.value = state.gridSize;
+        gridSizeEl.addEventListener('change', (e) => {
+            const val = parseInt(e.target.value);
+            if (!isNaN(val) && val > 0) {
+                state.gridSize = val;
+                updatePropertyPanel();
+                requestRedraw();
+            }
+        });
+    }
+
+    const sysScaleEl = document.getElementById('setting-symbol-scale');
+    if (sysScaleEl) {
+        sysScaleEl.value = state.symbolScale;
+        sysScaleEl.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            if (!isNaN(val) && val > 0) {
+                state.symbolScale = val;
+                requestRedraw();
+            }
+        });
+    }
+
     // Bind individual values
     for (const key of keys) {
         const bind = (prop, isNum) => {
@@ -1373,19 +1460,54 @@ const snap = (pt) => {
     // 1.5 Try Ortho Track from Reference Point
     snapMode.trackAxis = null;
     if (snapMode.trackRef) {
-        const dx = Math.abs(pt.x - snapMode.trackRef.x);
-        const dy = Math.abs(pt.y - snapMode.trackRef.y);
+        let bestTarget = null;
+        let bestDist = Infinity;
+        let bestAxis = null;
+
+        const checkTrackLine = (vx, vy, axisId) => {
+            const pvx = pt.x - snapMode.trackRef.x;
+            const pvy = pt.y - snapMode.trackRef.y;
+            const t = pvx * vx + pvy * vy;
+            const px = snapMode.trackRef.x + t * vx;
+            const py = snapMode.trackRef.y + t * vy;
+            const d = Math.hypot(pt.x - px, pt.y - py);
+            
+            if (d < snapRadius / state.vw.z && d < bestDist) {
+                bestDist = d;
+                bestAxis = axisId === 'x' ? 'x' : (axisId === 'y' ? 'y' : { vx, vy });
+                
+                let snapped = { x: px, y: py };
+                if (renderSettings.grid) {
+                    if (axisId === 'x') snapped.x = Math.round(snapped.x / state.gridSize) * state.gridSize;
+                    else if (axisId === 'y') snapped.y = Math.round(snapped.y / state.gridSize) * state.gridSize;
+                    else {
+                        const roundedT = Math.round(t / state.gridSize) * state.gridSize;
+                        snapped.x = snapMode.trackRef.x + roundedT * vx;
+                        snapped.y = snapMode.trackRef.y + roundedT * vy;
+                    }
+                }
+                bestTarget = snapped;
+            }
+        };
+
+        checkTrackLine(1, 0, 'x');
+        checkTrackLine(0, 1, 'y');
         
-        if (dy < snapRadius / state.vw.z) {
-            snapMode.trackAxis = 'x';
-            let snapped = { x: pt.x, y: snapMode.trackRef.y };
-            if (renderSettings.grid) snapped.x = Math.round(snapped.x / state.gridSize) * state.gridSize;
-            return snapped;
-        } else if (dx < snapRadius / state.vw.z) {
-            snapMode.trackAxis = 'y';
-            let snapped = { x: snapMode.trackRef.x, y: pt.y };
-            if (renderSettings.grid) snapped.y = Math.round(snapped.y / state.gridSize) * state.gridSize;
-            return snapped;
+        for (const ent of state.entities) {
+            if (ent.type === 'beam') {
+                const len = dist(ent.p1, ent.p2);
+                if (len < 1e-3) continue;
+                if (dist(ent.p1, snapMode.trackRef) < 1e-3) {
+                    checkTrackLine((ent.p2.x - ent.p1.x)/len, (ent.p2.y - ent.p1.y)/len, 'custom');
+                } else if (dist(ent.p2, snapMode.trackRef) < 1e-3) {
+                    checkTrackLine((ent.p1.x - ent.p2.x)/len, (ent.p1.y - ent.p2.y)/len, 'custom');
+                }
+            }
+        }
+        
+        if (bestTarget) {
+            snapMode.trackAxis = bestAxis;
+            return bestTarget;
         }
     }
 
@@ -1498,10 +1620,79 @@ function drawTextMagnitude(ctx, text, color, x, y, options = {}) {
 
 // Entity rendering and logic functions
 const EntityLogic = {
+    coordsys: {
+        draw: (ctx, ent, isSelected, isPreview) => {
+            ctx.save();
+            const pt = ent.p1;
+            const size = 50 * (state.symbolScale || 1.0); // Size of the axes
+            const headlen = 10 * (state.symbolScale || 1.0);
+            
+            ctx.translate(pt.x, pt.y);
+            if (ent.angle) {
+                ctx.rotate(ent.angle);
+            }
+            ctx.translate(-pt.x, -pt.y);
+
+            ctx.strokeStyle = isSelected ? '#3b82f6' : (ent.color || styleSettings[ent.type].rgba);
+            ctx.lineWidth = isSelected ? (ent.weight || styleSettings[ent.type].weight) + 1 : (ent.weight || styleSettings[ent.type].weight);
+            if (isPreview) {
+                ctx.strokeStyle = '#94a3b8';
+                ctx.setLineDash([4, 4]);
+            }
+
+            const signX = ent.flipX ? -1 : 1;
+            const signY = ent.flipY ? -1 : 1;
+
+            ctx.beginPath();
+            // Y-axis (pointing up in visual terms when un-flipped)
+            const endY = pt.y - (size * signY);
+            ctx.moveTo(pt.x, pt.y);
+            ctx.lineTo(pt.x, endY);
+            // Y Arrow head
+            ctx.lineTo(pt.x - headlen * Math.cos(Math.PI / 3), endY + signY * headlen * Math.sin(Math.PI / 3));
+            ctx.moveTo(pt.x, endY);
+            ctx.lineTo(pt.x + headlen * Math.cos(Math.PI / 3), endY + signY * headlen * Math.sin(Math.PI / 3));
+
+            // X-axis
+            const endX = pt.x + (size * signX);
+            ctx.moveTo(pt.x, pt.y);
+            ctx.lineTo(endX, pt.y);
+            // X Arrow head
+            ctx.lineTo(endX - signX * headlen * Math.cos(Math.PI / 6), pt.y - headlen * Math.sin(Math.PI / 6));
+            ctx.moveTo(endX, pt.y);
+            ctx.lineTo(endX - signX * headlen * Math.cos(Math.PI / 6), pt.y + headlen * Math.sin(Math.PI / 6));
+            
+            ctx.stroke();
+
+            // Text
+            const xText = ent.xLabel || 'x';
+            const yText = ent.yLabel || 'y';
+            const textSize = ent.textSize || styleSettings[ent.type].text;
+            ctx.font = `italic ${textSize}px sans-serif`;
+            ctx.fillStyle = ctx.strokeStyle;
+            
+            // Draw x text
+            ctx.textAlign = signX > 0 ? 'left' : 'right';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(xText, endX + (signX * 5), pt.y);
+            
+            // Draw y text
+            ctx.textAlign = 'center';
+            ctx.textBaseline = signY > 0 ? 'bottom' : 'top';
+            ctx.fillText(yText, pt.x, endY - (signY * 5));
+
+            ctx.restore();
+        },
+        hitTest: (pt, ent) => {
+            const d = dist(pt, ent.p1);
+            return d < 40 / state.vw.z;
+        },
+        move: (ent, dx, dy) => { ent.p1.x += dx; ent.p1.y += dy; }
+    },
     arrow: {
         draw: (ctx, ent, isSelected, isPreview) => {
             ctx.save();
-            const headlen = 15 * (ent.arrowScale || 1.0);
+            const headlen = 15 * (ent.arrowScale || 1.0) * (state.symbolScale || 1.0);
             const angle = Math.atan2(ent.p2.y - ent.p1.y, ent.p2.x - ent.p1.x);
             
             ctx.beginPath();
@@ -1962,7 +2153,7 @@ const EntityLogic = {
     force: {
         draw: (ctx, ent, isSelected, isPreview) => {
             ctx.save();
-            const headlen = 15;
+            const headlen = 15 * (state.symbolScale || 1.0);
             const angle = Math.atan2(ent.p2.y - ent.p1.y, ent.p2.x - ent.p1.x);
             
             ctx.beginPath();
@@ -2021,8 +2212,9 @@ const EntityLogic = {
             if (len > 0) {
                 const nx = -dy / len;
                 const ny = dx / len;
-                const baseHeight = ent.loadHeight !== undefined ? ent.loadHeight : 25;
+                const baseHeight = (ent.loadHeight !== undefined ? ent.loadHeight : 25) * (state.symbolScale || 1.0);
                 const hStart = baseHeight * (ent.startMagnitude !== undefined ? parseFloat(ent.startMagnitude) / Math.max(parseFloat(ent.startMagnitude), parseFloat(ent.endMagnitude || ent.startMagnitude), 1) : 1); 
+
                 const hEnd = baseHeight * (ent.endMagnitude !== undefined ? parseFloat(ent.endMagnitude) / Math.max(parseFloat(ent.startMagnitude || 10), parseFloat(ent.endMagnitude), 1) : 1);
                 
                 ctx.beginPath();
@@ -2136,13 +2328,13 @@ const EntityLogic = {
 
             // Extension lines (extending slightly past the dimension line)
             if (ent.dimLines !== false) {
-                const extOvershoot = 6;
+                const extOvershoot = 6 * (state.symbolScale || 1.0);
                 const extOffset = offset + (offset >= 0 ? extOvershoot : -extOvershoot);
-                const gap = 4;
+                const gap = 4 * (state.symbolScale || 1.0);
                 const dirX = offset >= 0 ? 1 : -1;
                 
                 // If short lines, the extension only goes down a small amount rather than all the way to p1/p2
-                const shortLen = ent.dimShortLength !== undefined ? ent.dimShortLength : 12;
+                const shortLen = (ent.dimShortLength !== undefined ? ent.dimShortLength : 12) * (state.symbolScale || 1.0);
                 const startOff1 = ent.dimShortLines ? offset - (offset >= 0 ? shortLen : -shortLen) : gap * dirX;
                 const startOff2 = ent.dimShortLines ? offset - (offset >= 0 ? shortLen : -shortLen) : gap * dirX;
 
@@ -2193,7 +2385,7 @@ const EntityLogic = {
             ctx.restore();
 
             // Draw line with arrows
-            const headlen = 12;
+            const headlen = 12 * (state.symbolScale || 1.0);
             const hAngle = Math.PI / 8;
 
             // Arrow at dp1
@@ -2331,7 +2523,7 @@ const EntityLogic = {
             ctx.stroke();
             
             // Arrows
-            const headlen = 10;
+            const headlen = 10 * (state.symbolScale || 1.0);
             const hAngle = Math.PI / 8;
             
             const t1Start = startA + Math.PI/2;
@@ -3080,7 +3272,7 @@ canvas.addEventListener('mousedown', (e) => {
     }
 
     // Single-click tools (Supports, Moments, Text, Force)
-    if (['pin', 'roller', 'fixed', 'hinge', 'spring', 'rotspr', 'moment', 'textLabel', 'force'].includes(state.tool)) {
+    if (['pin', 'roller', 'fixed', 'hinge', 'spring', 'rotspr', 'moment', 'textLabel', 'force', 'coordsys'].includes(state.tool)) {
         saveState();
         const pt = snap(wPt);
         const newEnt = {
