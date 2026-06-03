@@ -106,9 +106,22 @@ function buildFEModel(entities, gridSize) {
 
     // 1. Gather all unique points of interest FIRST (Endpoints, Supports, and Loads, Hinges)
     for (const ent of processedEntities) {
-        if (ent.type === 'beam' || ent.type === 'distload') {
+        if (ent.type === 'beam') {
             getOrCreateNode(ent.p1);
             getOrCreateNode(ent.p2);
+        } else if (ent.type === 'distload') {
+            getOrCreateNode(ent.p1);
+            getOrCreateNode(ent.p2);
+            
+            // Subdivide the distributed load into 10 smaller steps to accurately calculate sloped/trapezoidal forces
+            const NUM_SUBDIVS = 10;
+            for (let i = 1; i < NUM_SUBDIVS; i++) {
+                const fraction = i / NUM_SUBDIVS;
+                getOrCreateNode({
+                    x: ent.p1.x + fraction * (ent.p2.x - ent.p1.x),
+                    y: ent.p1.y + fraction * (ent.p2.y - ent.p1.y)
+                });
+            }
         } else if (['pin', 'roller', 'fixed', 'slider', 'moment', 'hinge', 'spring', 'rotspr'].includes(ent.type)) {
             getOrCreateNode(ent.p1);
         } else if (ent.type === 'force') {

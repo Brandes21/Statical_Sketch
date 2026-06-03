@@ -230,6 +230,8 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
         ctx.setLineDash([5/s, 5/s]);
         
         let hoverData = null;
+        let pMaxDisp = 0;
+        let pMaxLoc = null;
 
         ctx.beginPath();
         model.elements.forEach(el => {
@@ -301,11 +303,20 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
             };
             
             ctx.moveTo(cX1 + n1.ux * dispScale, cY1 - n1.uy * dispScale);
-            for (let i = 1; i <= 10; i++) {
-                const def = getDeflection(i / 10);
-                const segX = cX1 + dx * (i / 10);
-                const segY = cY1 + dy * (i / 10);
-                ctx.lineTo(segX + def.uxHover * dispScale, segY - def.uyHover * dispScale);
+            for (let i = 0; i <= 10; i++) {
+                const ratio = i / 10;
+                const def = getDeflection(ratio);
+                const segX = cX1 + dx * ratio;
+                const segY = cY1 + dy * ratio;
+                const renderX = segX + def.uxHover * dispScale;
+                const renderY = segY - def.uyHover * dispScale;
+                if (i > 0) ctx.lineTo(renderX, renderY);
+                
+                const curDisp = Math.hypot(def.uxHover, def.uyHover);
+                if (curDisp > pMaxDisp) {
+                    pMaxDisp = curDisp;
+                    pMaxLoc = { x: renderX, y: renderY };
+                }
             }
             
             if (mouseWp && mouseWp.x !== undefined) {
@@ -329,6 +340,14 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
         });
         ctx.stroke();
         ctx.setLineDash([]);
+        
+        if (pMaxLoc && pMaxDisp > 1e-12 && !hoverData) {
+            ctx.font = `${textSize/s}px monospace`;
+            ctx.fillStyle = colDeflect;
+            ctx.textAlign = 'center';
+            const lbl = (pMaxDisp * 1000).toFixed(2) + " mm";
+            ctx.fillText(lbl, pMaxLoc.x, pMaxLoc.y - 8/s);
+        }
         
         if (hoverData) {
             ctx.fillStyle = 'black';
@@ -389,7 +408,13 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
             ctx.rotate(ang);
             
             ctx.fillStyle = isBmd ? colM : (isAfd ? colN : colV);
-            ctx.strokeStyle = isBmd ? colM_edge : (isAfd ? colN_edge : colV_edge);
+            // We use the diagram's stroke color directly for drawing text, even if strokes are hidden later
+            const textCol = isBmd ? colM_edge : (isAfd ? colN_edge : colV_edge);
+            
+            // To remove vertical partition lines for continuous sub-meshed elements, 
+            // we remove the edge stroke inside the element loop and draw transparent strokes 
+            // inside them.
+            ctx.strokeStyle = "transparent";
             
             ctx.beginPath();
             ctx.moveTo(0, 0);
@@ -440,7 +465,7 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
                 ctx.fill();
                 ctx.stroke();
                 
-                ctx.fillStyle = ctx.strokeStyle;
+                ctx.fillStyle = textCol;
                 if (!minMaxOnly || Math.abs(Math.abs(ax1) - maxVal) < 1e-3 || Math.abs(Math.abs(ax1) - minAfdVal) < 1e-3) {
                     if (Math.abs(ax1) > 1e-3) ctx.fillText(ax1.toFixed(1), 0, y1 - Math.sign(y1)*10/s);
                 }
@@ -456,7 +481,7 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
                 ctx.fill();
                 ctx.stroke();
                 
-                ctx.fillStyle = ctx.strokeStyle;
+                ctx.fillStyle = textCol;
                 if (!minMaxOnly || Math.abs(Math.abs(v1) - maxVal) < 1e-3 || Math.abs(Math.abs(v1) - minSfdVal) < 1e-3) {
                     if (Math.abs(v1) > 1e-3) ctx.fillText(v1.toFixed(1), 0, y1 - Math.sign(y1)*10/s);
                 }
@@ -497,7 +522,7 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
                 ctx.fill();
                 ctx.stroke();
                 
-                ctx.fillStyle = ctx.strokeStyle;
+                ctx.fillStyle = textCol;
                 
                 if (!minMaxOnly || Math.abs(Math.abs(m1) - maxVal) < 1e-3 || Math.abs(Math.abs(m1) - minBmdVal) < 1e-3) {
                     if (Math.abs(m1) > 1e-3) ctx.fillText(m1.toFixed(1), 0, y1 - Math.sign(y1)*10/s);
