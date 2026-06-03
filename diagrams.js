@@ -254,7 +254,18 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
             
             // Function to compute local deflections
             const getDeflection = (xi) => {
-                if (!el.u_local || L === 0) return { uxHover: (1-xi)*n1.ux + xi*n2.ux, uyHover: (1-xi)*n1.uy + xi*n2.uy };
+                if (!el.u_local || L === 0 || el.type === 'truss') {
+                    // For missing data, zero length, or trusses, strictly interpolate translations linearly
+                    const localX = (1 - xi) * ((el.u_local && el.u_local[0]) || 0) + xi * ((el.u_local && el.u_local[3]) || 0);
+                    const localY = (1 - xi) * ((el.u_local && el.u_local[1]) || 0) + xi * ((el.u_local && el.u_local[4]) || 0);
+                    
+                    if (el.u_local) {
+                        const ux = localX * fe_c - localY * fe_s;
+                        const uy = localX * fe_s + localY * fe_c;
+                        return { uxHover: ux, uyHover: uy };
+                    }
+                    return { uxHover: (1-xi)*n1.ux + xi*n2.ux, uyHover: (1-xi)*n1.uy + xi*n2.uy };
+                }
                 
                 const f = el.forces;
                 let w = (f.V1 + f.V2) / (Math.hypot(n2.x - n1.x, n2.y - n1.y) || 1);
