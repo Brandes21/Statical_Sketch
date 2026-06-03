@@ -109,7 +109,7 @@ function buildFEModel(entities, gridSize) {
         if (ent.type === 'beam' || ent.type === 'distload') {
             getOrCreateNode(ent.p1);
             getOrCreateNode(ent.p2);
-        } else if (['pin', 'roller', 'fixed', 'moment', 'hinge', 'spring', 'rotspr'].includes(ent.type)) {
+        } else if (['pin', 'roller', 'fixed', 'slider', 'moment', 'hinge', 'spring', 'rotspr'].includes(ent.type)) {
             getOrCreateNode(ent.p1);
         } else if (ent.type === 'force') {
             getOrCreateNode(ent.p2);
@@ -162,7 +162,7 @@ function buildFEModel(entities, gridSize) {
 
     // 3. Process Boundary Conditions
     for (const ent of processedEntities) {
-        if (['pin', 'roller', 'fixed', 'hinge', 'spring', 'rotspr'].includes(ent.type)) {
+        if (['pin', 'roller', 'fixed', 'slider', 'hinge', 'spring', 'rotspr'].includes(ent.type)) {
             const nId = getOrCreateNode(ent.p1);
             
             if (ent.type === 'hinge') {
@@ -179,7 +179,22 @@ function buildFEModel(entities, gridSize) {
                 });
             } else {
                 // Capture the angle of the support (in radians) for coordinate transformation in the solver
-                nodes[nId].supportAngle = ent.angle || 0;
+                if (ent.type === 'slider') {
+                    // Sliders automatically align with the beam they are on
+                    let ang = 0;
+                    for (const e of processedEntities) {
+                        if (e.type === 'beam' && (Math.hypot(ent.p1.x - e.p1.x, ent.p1.y - e.p1.y) < 1e-4 || 
+                            Math.hypot(ent.p1.x - e.p2.x, ent.p1.y - e.p2.y) < 1e-4 ||
+                            (Math.abs(Math.hypot(e.p1.x - e.p2.x, e.p1.y - e.p2.y) - 
+                            (Math.hypot(ent.p1.x - e.p1.x, ent.p1.y - e.p1.y) + Math.hypot(ent.p1.x - e.p2.x, ent.p1.y - e.p2.y))) < 1e-4))) {
+                            ang = Math.atan2(e.p2.y - e.p1.y, e.p2.x - e.p1.x);
+                            break;
+                        }
+                    }
+                    nodes[nId].supportAngle = ang;
+                } else {
+                    nodes[nId].supportAngle = ent.angle || 0;
+                }
                 
                 if (ent.type === 'fixed') {
                     nodes[nId].restraints = { ux: true, uy: true, rz: true };
@@ -189,6 +204,8 @@ function buildFEModel(entities, gridSize) {
                     // A roller theoretically restrains perpendicular to its sliding plane.
                     // The FE solver will use supportAngle to rotate the global restraint vectors.
                     nodes[nId].restraints = { ux: false, uy: true, rz: false };
+                } else if (ent.type === 'slider') {
+                    nodes[nId].restraints = { ux: false, uy: true, rz: true };
                 }
             }
         }

@@ -1307,6 +1307,7 @@ let styleSettings = {
     pin: { color: '#27272a', alpha: 1.0, rgba: 'rgba(39, 39, 42, 1.0)', weight: 2 },
     roller: { color: '#27272a', alpha: 1.0, rgba: 'rgba(39, 39, 42, 1.0)', weight: 2 },
     fixed: { color: '#27272a', alpha: 1.0, rgba: 'rgba(39, 39, 42, 1.0)', weight: 2 },
+    slider: { color: '#27272a', alpha: 1.0, rgba: 'rgba(39, 39, 42, 1.0)', weight: 2 },
     hinge: { color: '#27272a', alpha: 1.0, rgba: 'rgba(39, 39, 42, 1.0)', weight: 2 },
     spring: { color: '#27272a', alpha: 1.0, rgba: 'rgba(39, 39, 42, 1.0)', weight: 2 },
     rotspr: { color: '#27272a', alpha: 1.0, rgba: 'rgba(39, 39, 42, 1.0)', weight: 2 },
@@ -2616,10 +2617,17 @@ const EntityLogic = {
             applyEntityTransform(ctx, ent);
             ctx.fillStyle = ctx.strokeStyle = isSelected ? '#3b82f6' : styleSettings[ent.type].rgba;
             ctx.lineWidth = styleSettings[ent.type].weight;
-            const r = 8;
-            ctx.beginPath(); ctx.arc(0, r, r, 0, Math.PI * 2); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(-r*2, r*2); ctx.lineTo(r*2, r*2); ctx.stroke();
-            drawHatching(ctx, 0, r*2, r*4);
+            const t = 12;
+            const r = 4;
+            // Draw triangle
+            ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-t, t*1.5); ctx.lineTo(t, t*1.5); ctx.closePath(); ctx.stroke();
+            // Draw two rollers
+            ctx.beginPath(); ctx.arc(-t/2, t*1.5 + r, r, 0, Math.PI * 2); ctx.stroke();
+            ctx.beginPath(); ctx.arc(t/2, t*1.5 + r, r, 0, Math.PI * 2); ctx.stroke();
+            // Draw baseline
+            ctx.beginPath(); ctx.moveTo(-t*1.5, t*1.5 + 2*r); ctx.lineTo(t*1.5, t*1.5 + 2*r); ctx.stroke();
+            // Draw hatching
+            drawHatching(ctx, 0, t*1.5 + 2*r, t*3);
             ctx.restore();
         },
         hitTest: (pt, ent) => dist(pt, ent.p1) < 20 / state.vw.z,
@@ -2640,6 +2648,41 @@ const EntityLogic = {
             ctx.restore();
         },
         hitTest: (pt, ent) => dist(pt, ent.p1) < 18 / state.vw.z,
+        move: (ent, dx, dy) => { ent.p1.x += dx; ent.p1.y += dy; }
+    },
+    slider: {
+        draw: (ctx, ent, isSelected) => {
+            ctx.save();
+            let ang = ent.angle || 0;
+            const beam = state.entities.find(e => e.type === 'beam' && distToLine(ent.p1, e.p1, e.p2) < 1e-3);
+            if (beam) ang = Math.atan2(beam.p2.y - beam.p1.y, beam.p2.x - beam.p1.x);
+
+            ctx.translate(ent.p1.x, ent.p1.y);
+            ctx.rotate(ang);
+            ctx.scale(state.symbolScale, state.symbolScale);
+
+            ctx.fillStyle = ctx.strokeStyle = isSelected ? '#3b82f6' : styleSettings[ent.type].rgba;
+            ctx.lineWidth = styleSettings[ent.type].weight;
+            
+            const r = 4;
+            const w = 12;
+            const gap = 6;
+            
+            ctx.beginPath(); ctx.arc(-w/2, -gap, r, 0, Math.PI * 2); ctx.stroke();
+            ctx.beginPath(); ctx.arc(w/2, -gap, r, 0, Math.PI * 2); ctx.stroke();
+            
+            ctx.beginPath(); ctx.arc(-w/2, gap, r, 0, Math.PI * 2); ctx.stroke();
+            ctx.beginPath(); ctx.arc(w/2, gap, r, 0, Math.PI * 2); ctx.stroke();
+            
+            ctx.beginPath(); ctx.moveTo(-w, -gap-r); ctx.lineTo(w, -gap-r); ctx.stroke();
+            ctx.save(); ctx.translate(0, -gap-r); ctx.scale(1, -1); drawHatching(ctx, 0, 0, w*2+4); ctx.restore();
+            
+            ctx.beginPath(); ctx.moveTo(-w, gap+r); ctx.lineTo(w, gap+r); ctx.stroke();
+            drawHatching(ctx, 0, gap+r, w*2+4);
+            
+            ctx.restore();
+        },
+        hitTest: (pt, ent) => dist(pt, ent.p1) < 15 / state.vw.z,
         move: (ent, dx, dy) => { ent.p1.x += dx; ent.p1.y += dy; }
     },
     hinge: {
@@ -2818,7 +2861,7 @@ function isEntityVisible(ent) {
     if (['beam', 'arc', 'parabola'].includes(type)) {
         return document.getElementById('vis-structure')?.checked ?? true;
     }
-    if (['pin', 'roller', 'fixed', 'hinge', 'spring', 'rotspr'].includes(type)) {
+    if (['pin', 'roller', 'fixed', 'slider', 'hinge', 'spring', 'rotspr'].includes(type)) {
         return document.getElementById('vis-supports')?.checked ?? true;
     }
     if (['force', 'distload', 'moment'].includes(type)) {
@@ -2890,7 +2933,7 @@ function render() {
     ctx.restore();
 
     // Draw Ortho Tracking Line Guide
-    if (snapMode.trackRef && snapMode.trackAxis && ['force', 'moment', 'distload', 'pin', 'roller', 'fixed', 'hinge', 'spring', 'rotspr', 'beam', 'arc', 'parabola', 'dimension'].includes(state.tool) && !state.isMovingEntity) {
+    if (snapMode.trackRef && snapMode.trackAxis && ['force', 'moment', 'distload', 'pin', 'roller', 'fixed', 'slider', 'hinge', 'spring', 'rotspr', 'beam', 'arc', 'parabola', 'dimension'].includes(state.tool) && !state.isMovingEntity) {
         ctx.save();
         ctx.setTransform(state.vw.z, 0, 0, state.vw.z, state.vw.x, state.vw.y);
         
@@ -3098,7 +3141,12 @@ canvas.addEventListener('mousedown', (e) => {
             requestRedraw();
         };
 
-        if (hitEntities.length === 1) {
+        const clickedAlreadySelected = hitEntities.find(ent => state.selectedIds.includes(ent.id));
+
+        if (clickedAlreadySelected && !e.ctrlKey) {
+            // Prioritize dragging the current selection instead of prompting multi-pick if there are overlapping entities
+            applySelection(clickedAlreadySelected, true);
+        } else if (hitEntities.length === 1) {
             applySelection(hitEntities[0], true);
         } else if (hitEntities.length > 1) {
             showMultiPickMenu(hitEntities, e.clientX, e.clientY, (clicked) => applySelection(clicked, false));
@@ -3125,7 +3173,7 @@ canvas.addEventListener('mousedown', (e) => {
         }
         
         const handleInfluencePick = (clicked) => {
-            const supportTypes = ['pin', 'roller', 'fixed', 'hinge', 'spring', 'rotspr'];
+            const supportTypes = ['pin', 'roller', 'fixed', 'slider', 'hinge', 'spring', 'rotspr'];
             if (supportTypes.includes(clicked.type)) {
                 const component = prompt("Influence Line target: Support.\nWhich force component to track? (Type: Rx, Ry, or Mz)", "Ry");
                 if (component) runInfluenceLine(clicked, 'reaction', component.toLowerCase(), null);
@@ -3272,7 +3320,7 @@ canvas.addEventListener('mousedown', (e) => {
     }
 
     // Single-click tools (Supports, Moments, Text, Force)
-    if (['pin', 'roller', 'fixed', 'hinge', 'spring', 'rotspr', 'moment', 'textLabel', 'force', 'coordsys'].includes(state.tool)) {
+    if (['pin', 'roller', 'fixed', 'slider', 'hinge', 'spring', 'rotspr', 'moment', 'textLabel', 'force', 'coordsys'].includes(state.tool)) {
         saveState();
         const pt = snap(wPt);
         const newEnt = {
