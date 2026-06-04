@@ -97,7 +97,7 @@ function updatePropertyPanel() {
         const containersToHide = [
             'prop-magnitude-container', 'prop-distload-range-container', 'prop-loadheight-container', 'prop-perpload-container',
             'prop-angle-container', 'prop-length-container', 'prop-dim-container', 'prop-beam-rotate-container',
-            'prop-text-container', 'prop-line-container', 'prop-arrow-container', 'prop-force-details-container', 'prop-stiffness-container'
+            'prop-text-container', 'prop-line-container', 'prop-arrow-container', 'prop-force-details-container', 'prop-stiffness-container', 'prop-image-container'
         ];
         
         containersToHide.forEach(id => {
@@ -132,6 +132,7 @@ function updatePropertyPanel() {
     const coordsysCont = document.getElementById('prop-coordsys-container');
     const stiffnessCont = document.getElementById('prop-stiffness-container');
     const sectionCont = document.getElementById('prop-section-container');
+    const imageCont = document.getElementById('prop-image-container');
     
     magCont.classList.add('hidden');
     distRangeCont.classList.add('hidden');
@@ -147,6 +148,17 @@ function updatePropertyPanel() {
     if (coordsysCont) coordsysCont.classList.add('hidden');
     if (stiffnessCont) stiffnessCont.classList.add('hidden');
     if (sectionCont) sectionCont.classList.add('hidden');
+    if (imageCont) imageCont.classList.add('hidden');
+
+    if (ent.type === 'image') {
+        if (imageCont) {
+            imageCont.classList.remove('hidden');
+            const opacityInput = document.getElementById('prop-image-opacity');
+            if (opacityInput) opacityInput.value = ent.opacity !== undefined ? ent.opacity : 0.4;
+            const opVal = document.getElementById('prop-image-opacity-val');
+            if (opVal) opVal.innerText = Math.round((ent.opacity !== undefined ? ent.opacity : 0.4) * 100);
+        }
+    }
     
     if (['force', 'moment', 'distload'].includes(ent.type)) {
         if (ent.type === 'distload') {
@@ -336,6 +348,15 @@ function updateSelectedEntities(callback) {
 document.getElementById('prop-magnitude').addEventListener('input', (e) => {
     updateSelectedEntities(ent => {
         ent.magnitude = e.target.value;
+    });
+});
+
+document.getElementById('prop-image-opacity').addEventListener('input', (e) => {
+    document.getElementById('prop-image-opacity-val').innerText = Math.round(e.target.value * 100);
+    updateSelectedEntities(ent => {
+        if (ent.type === 'image') {
+            ent.opacity = parseFloat(e.target.value);
+        }
     });
 });
 
@@ -774,6 +795,53 @@ document.addEventListener('keydown', (e) => {
     // Undo / Redo
     if (e.target.tagName !== 'INPUT' && e.ctrlKey && e.key.toLowerCase() === 'z') triggerUndo();
     if (e.target.tagName !== 'INPUT' && e.ctrlKey && e.key.toLowerCase() === 'y') triggerRedo();
+});
+
+// Native Paste Event for Images
+window.addEventListener('paste', (e) => {
+    // Determine target so we don't paste images when inside an input field
+    if (e.target && e.target.tagName === 'INPUT') return;
+
+    const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+    for (const item of items) {
+        if (item.type.indexOf('image') === 0) {
+            const blob = item.getAsFile();
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const dataUrl = event.target.result;
+                const img = new Image();
+                img.onload = () => {
+                    saveState();
+                    const w = img.width;
+                    const h = img.height;
+                    
+                    // Center roughly in current viewport
+                    const centerX = -state.vw.x / state.vw.z + (wrapper.clientWidth / 2) / state.vw.z;
+                    const centerY = -state.vw.y / state.vw.z + (wrapper.clientHeight / 2) / state.vw.z;
+                    
+                    // We'll insert it at a modest scale if it's very large
+                    const maxScaleW = (wrapper.clientWidth / state.vw.z) * 0.8;
+                    const widthInWorld = Math.min(w, maxScaleW);
+                    const scale = widthInWorld / w;
+                    
+                    const newEnt = {
+                        id: generateId(),
+                        type: 'image',
+                        p1: { x: centerX - (w * scale) / 2, y: centerY - (h * scale) / 2 },
+                        p2: { x: centerX + (w * scale) / 2, y: centerY + (h * scale) / 2 },
+                        dataUrl: dataUrl,
+                        opacity: 0.4
+                    };
+                    // unshift to put it behind all other drawn lines
+                    state.entities.unshift(newEnt);
+                    requestRedraw();
+                };
+                img.src = dataUrl;
+            };
+            reader.readAsDataURL(blob);
+            break; // only handle first image
+        }
+    }
 });
 
 document.getElementById('btn-undo').addEventListener('click', triggerUndo);
@@ -2794,6 +2862,50 @@ const EntityLogic = {
             return rx >= -5 && rx <= w + 5 && ry >= -5 && ry <= h + 5;
         },
         move: (ent, dx, dy) => { ent.p1.x += dx; ent.p1.y += dy; }
+    },
+    image: {
+        draw: (ctx, ent, isSelected, isPreview) => {
+            if (!ent.img && ent.dataUrl) {
+                ent.img = new Image();
+                ent.img.src = ent.dataUrl;
+                ent.img.onload = () => { if (typeof requestRedraw === 'function') requestRedraw(); };
+            }
+            if (ent.img && ent.img.complete) {
+                ctx.save();
+                ctx.translate(ent.p1.x, ent.p1.y);
+                ctx.globalAlpha = ent.opacity || 0.4; // 40% initial opacity is good for tracing
+                
+                let w = ent.img.width;
+                let h = ent.img.height;
+                if (ent.p2) {
+                    w = ent.p2.x - ent.p1.x;
+                    h = ent.p2.y - ent.p1.y;
+                }
+                
+                ctx.drawImage(ent.img, 0, 0, w, h);
+                
+                if (isSelected) {
+                    ctx.globalAlpha = 1.0;
+                    ctx.strokeStyle = '#3b82f6';
+                    ctx.setLineDash([5 / state.vw.z, 5 / state.vw.z]);
+                    ctx.lineWidth = 2 / state.vw.z;
+                    ctx.strokeRect(0, 0, w, h);
+                }
+                ctx.restore();
+            }
+        },
+        hitTest: (pt, ent) => {
+            if (!ent.p2) return false;
+            const minX = Math.min(ent.p1.x, ent.p2.x);
+            const maxX = Math.max(ent.p1.x, ent.p2.x);
+            const minY = Math.min(ent.p1.y, ent.p2.y);
+            const maxY = Math.max(ent.p1.y, ent.p2.y);
+            return (pt.x >= minX && pt.x <= maxX && pt.y >= minY && pt.y <= maxY);
+        },
+        move: (ent, dx, dy) => { 
+            ent.p1.x += dx; ent.p1.y += dy; 
+            if (ent.p2) { ent.p2.x += dx; ent.p2.y += dy; }
+        }
     }
 };
 
