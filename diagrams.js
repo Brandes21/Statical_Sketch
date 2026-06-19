@@ -378,6 +378,145 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'center';
         
+        // Compute Averaged Node Normals for smooth unbroken diagrams across boundaries
+        const nodeNormals = model.nodes.map(() => ({ x: 0, y: 0, count: 0 }));
+        model.elements.forEach(el => {
+            const n1 = model.nodes[el.n1];
+            const n2 = model.nodes[el.n2];
+            const dx = toCX(n2.x) - toCX(n1.x);
+            const dy = toCY(n2.y) - toCY(n1.y);
+            const len = Math.hypot(dx, dy) || 1;
+            const nx = -dy / len;
+            const ny = dx / len;
+            
+            nodeNormals[el.n1].x += nx;
+            nodeNormals[el.n1].y += ny;
+            nodeNormals[el.n1].count += 1;
+            nodeNormals[el.n2].x += nx;
+            nodeNormals[el.n2].y += ny;
+            nodeNormals[el.n2].count += 1;
+        });
+        nodeNormals.forEach(nn => {
+            if (nn.count > 0) {
+                const len = Math.hypot(nn.x, nn.y) || 1;
+                nn.x /= len;
+                nn.y /= len;
+            } else {
+                nn.x = 0; nn.y = -1;
+            }
+        });
+        
+        ctx.beginPath();
+        model.elements.forEach(el => {
+            const n1 = model.nodes[el.n1];
+            const n2 = model.nodes[el.n2];
+            const cX1 = toCX(n1.x);
+            const cY1 = toCY(n1.y);
+            const cX2 = toCX(n2.x);
+            const cY2 = toCY(n2.y);
+            const dx = cX2 - cX1;
+            const dy = cY2 - cY1;
+            const L = Math.hypot(dx, dy);
+            const Lfe = Math.hypot(n2.x - n1.x, n2.y - n1.y);
+            const f = el.forces;
+            
+            const nn1 = nodeNormals[el.n1];
+            const nn2 = nodeNormals[el.n2];
+            
+            ctx.moveTo(cX1, cY1);
+            if (activeDiagram === 'afd') {
+                ctx.lineTo(cX1 + nn1.x * (-f.N1) * scale, cY1 + nn1.y * (-f.N1) * scale);
+                ctx.lineTo(cX2 + nn2.x * (f.N2) * scale, cY2 + nn2.y * (f.N2) * scale);
+            } else if (activeDiagram === 'sfd') {
+                ctx.lineTo(cX1 + nn1.x * (f.V1) * scale, cY1 + nn1.y * (f.V1) * scale);
+                ctx.lineTo(cX2 + nn2.x * (-f.V2) * scale, cY2 + nn2.y * (-f.V2) * scale);
+            } else if (activeDiagram === 'bmd') {
+                ctx.lineTo(cX1 + nn1.x * (-f.M1) * scale, cY1 + nn1.y * (-f.M1) * scale);
+                const w = (f.V1 + f.V2) / Lfe;
+                const segments = 20;
+                for (let i = 1; i <= segments; i++) {
+                    const ratio = i/segments;
+                    const xLoc = ratio * Lfe;
+                    const mLoc = (-f.M1) + f.V1 * xLoc - w * xLoc * xLoc / 2;
+                    
+                    const curNx = nn1.x * (1 - ratio) + nn2.x * ratio;
+                    const curNy = nn1.y * (1 - ratio) + nn2.y * ratio;
+                    const curLen = Math.hypot(curNx, curNy) || 1;
+                    const fnx = curNx / curLen;
+                    const fny = curNy / curLen;
+                    
+                    const px = cX1 + dx * ratio;
+                    const py = cY1 + dy * ratio;
+                    ctx.lineTo(px + fnx * mLoc * scale, py + fny * mLoc * scale);
+                }
+            }
+            ctx.lineTo(cX2, cY2);
+        });
+        
+        ctx.fillStyle = isBmd ? colM : (isAfd ? colN : colV);
+        ctx.fill();
+        
+        // --- NEW: Draw the outer stroke boundary without closing lines back to nodes ---
+        ctx.beginPath();
+        model.elements.forEach(el => {
+            const n1 = model.nodes[el.n1];
+            const n2 = model.nodes[el.n2];
+            const cX1 = toCX(n1.x);
+            const cY1 = toCY(n1.y);
+            const cX2 = toCX(n2.x);
+            const cY2 = toCY(n2.y);
+            const dx = cX2 - cX1;
+            const dy = cY2 - cY1;
+            const Lfe = Math.hypot(n2.x - n1.x, n2.y - n1.y);
+            const f = el.forces;
+            
+            const nn1 = nodeNormals[el.n1];
+            const nn2 = nodeNormals[el.n2];
+            
+            if (activeDiagram === 'afd') {
+                ctx.moveTo(cX1 + nn1.x * (-f.N1) * scale, cY1 + nn1.y * (-f.N1) * scale);
+                ctx.lineTo(cX2 + nn2.x * (f.N2) * scale, cY2 + nn2.y * (f.N2) * scale);
+            } else if (activeDiagram === 'sfd') {
+                ctx.moveTo(cX1 + nn1.x * (f.V1) * scale, cY1 + nn1.y * (f.V1) * scale);
+                ctx.lineTo(cX2 + nn2.x * (-f.V2) * scale, cY2 + nn2.y * (-f.V2) * scale);
+            } else if (activeDiagram === 'bmd') {
+                ctx.moveTo(cX1 + nn1.x * (-f.M1) * scale, cY1 + nn1.y * (-f.M1) * scale);
+                const w = (f.V1 + f.V2) / Lfe;
+                const segments = 20;
+                for (let i = 1; i <= segments; i++) {
+                    const ratio = i/segments;
+                    const xLoc = ratio * Lfe;
+                    const mLoc = (-f.M1) + f.V1 * xLoc - w * xLoc * xLoc / 2;
+                    
+                    const curNx = nn1.x * (1 - ratio) + nn2.x * ratio;
+                    const curNy = nn1.y * (1 - ratio) + nn2.y * ratio;
+                    const curLen = Math.hypot(curNx, curNy) || 1;
+                    const fnx = curNx / curLen;
+                    const fny = curNy / curLen;
+                    
+                    const px = cX1 + dx * ratio;
+                    const py = cY1 + dy * ratio;
+                    ctx.lineTo(px + fnx * mLoc * scale, py + fny * mLoc * scale);
+                }
+            }
+        });
+        ctx.strokeStyle = isBmd ? colM_edge : (isAfd ? colN_edge : colV_edge);
+        ctx.lineWidth = 2 / s;
+        ctx.stroke();
+        
+        // Pass 2: Keep exact local rotation logic for correct numerical text orientation
+        const drawnNodeLabels = new Set();
+        const drawTextOnce = (val, nodeId, px, py) => {
+            if (Math.abs(val) <= 1e-3) return;
+            const textStr = val.toFixed(1);
+            // Avoid drawing the exact same value multiple times at the same geometry node
+            const key = `${nodeId}_${textStr}`;
+            if (!drawnNodeLabels.has(key)) {
+                drawnNodeLabels.add(key);
+                ctx.fillText(textStr, px, py - Math.sign(py)*10/s);
+            }
+        };
+
         model.elements.forEach(el => {
             const n1 = model.nodes[el.n1];
             const n2 = model.nodes[el.n2];
@@ -415,9 +554,6 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
             // we remove the edge stroke inside the element loop and draw transparent strokes 
             // inside them.
             ctx.strokeStyle = "transparent";
-            
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
             
             let hoverValue = null;
             let hoverX = null;
@@ -459,34 +595,24 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
             if (activeDiagram === 'afd') {
                 const y1 = -ax1 * scale;
                 const y2 = -ax2 * scale;
-                ctx.lineTo(0, y1);
-                ctx.lineTo(L, y2);
-                ctx.lineTo(L, 0);
-                ctx.fill();
-                ctx.stroke();
                 
                 ctx.fillStyle = textCol;
                 if (!minMaxOnly || Math.abs(Math.abs(ax1) - maxVal) < 1e-3 || Math.abs(Math.abs(ax1) - minAfdVal) < 1e-3) {
-                    if (Math.abs(ax1) > 1e-3) ctx.fillText(ax1.toFixed(1), 0, y1 - Math.sign(y1)*10/s);
+                    drawTextOnce(ax1, el.n1, 0, y1);
                 }
                 if (!minMaxOnly || Math.abs(Math.abs(ax2) - maxVal) < 1e-3 || Math.abs(Math.abs(ax2) - minAfdVal) < 1e-3) {
-                    if (Math.abs(ax2) > 1e-3) ctx.fillText(ax2.toFixed(1), L, y2 - Math.sign(y2)*10/s);
+                    drawTextOnce(ax2, el.n2, L, y2);
                 }
             } else if (activeDiagram === 'sfd') {
                 const y1 = -v1 * scale;
                 const y2 = -v2 * scale;
-                ctx.lineTo(0, y1);
-                ctx.lineTo(L, y2);
-                ctx.lineTo(L, 0);
-                ctx.fill();
-                ctx.stroke();
                 
                 ctx.fillStyle = textCol;
                 if (!minMaxOnly || Math.abs(Math.abs(v1) - maxVal) < 1e-3 || Math.abs(Math.abs(v1) - minSfdVal) < 1e-3) {
-                    if (Math.abs(v1) > 1e-3) ctx.fillText(v1.toFixed(1), 0, y1 - Math.sign(y1)*10/s);
+                    drawTextOnce(v1, el.n1, 0, y1);
                 }
                 if (!minMaxOnly || Math.abs(Math.abs(v2) - maxVal) < 1e-3 || Math.abs(Math.abs(v2) - minSfdVal) < 1e-3) {
-                    if (Math.abs(v2) > 1e-3) ctx.fillText(v2.toFixed(1), L, y2 - Math.sign(y2)*10/s);
+                    drawTextOnce(v2, el.n2, L, y2);
                 }
             } else {
                 // BMD implies Parabola if w != 0
@@ -498,8 +624,6 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
                 const y1 = m1 * scale;
                 const y2 = m2 * scale;
                 
-                ctx.lineTo(0, y1);
-                
                 // Draw parabola / lines
                 const segments = 20;
                 let maxMloc = 0, xMax = 0, valMax = 0;
@@ -509,7 +633,6 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
                     const xLoc = ratio * Lfe;
                     // M(x) = M1 + V1*x - w*x^2/2 (signs depend on convention)
                     const mLoc = m1 + f.V1 * xLoc - w * xLoc * xLoc / 2;
-                    ctx.lineTo(ratio * L, mLoc * scale);
                     
                     if (Math.abs(mLoc) > Math.abs(valMax)) {
                         valMax = mLoc;
@@ -518,17 +641,13 @@ function drawFEDiagrams(ctx, results, activeDiagram, dScale = 1.0, mouseWp = nul
                     }
                 }
                 
-                ctx.lineTo(L, 0);
-                ctx.fill();
-                ctx.stroke();
-                
                 ctx.fillStyle = textCol;
                 
                 if (!minMaxOnly || Math.abs(Math.abs(m1) - maxVal) < 1e-3 || Math.abs(Math.abs(m1) - minBmdVal) < 1e-3) {
-                    if (Math.abs(m1) > 1e-3) ctx.fillText(m1.toFixed(1), 0, y1 - Math.sign(y1)*10/s);
+                    drawTextOnce(m1, el.n1, 0, y1);
                 }
                 if (!minMaxOnly || Math.abs(Math.abs(m2) - maxVal) < 1e-3 || Math.abs(Math.abs(m2) - minBmdVal) < 1e-3) {
-                    if (Math.abs(m2) > 1e-3) ctx.fillText(m2.toFixed(1), L, y2 - Math.sign(y2)*10/s);
+                    drawTextOnce(m2, el.n2, L, y2);
                 }
                 if (Math.abs(w) > 1e-3 && xMax > 0.1 && xMax < (L-0.1)) {
                     if (!minMaxOnly || Math.abs(Math.abs(valMax) - maxVal) < 1e-3 || Math.abs(Math.abs(valMax) - minBmdVal) < 1e-3) {

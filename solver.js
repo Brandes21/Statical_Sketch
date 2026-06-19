@@ -47,7 +47,9 @@ function buildFEModel(entities, gridSize) {
     // Discretize arcs and parabolas first
     for (const ent of entities) {
         if (ent.type === 'parabola' && ent.p3) {
-            const steps = 15;
+            // Increased from 15 to 40 steps to dramatically reduce the "local simply supported beam bulge" 
+            // bending moment artifacts on individual elements.
+            const steps = 40; 
             let lastPt = ent.p1;
             for (let i = 1; i <= steps; i++) {
                 const t = i / steps;
@@ -82,7 +84,8 @@ function buildFEModel(entities, gridSize) {
                         while (endAngle < startAngle) endAngle += Math.PI * 2;
                     }
                     
-                    const steps = 15;
+                    // Increased from 15 to 40 steps for smoother moment diagrams and reduction of local element belly artifacts
+                    const steps = 40;
                     let lastPt = ent.p1;
                     for (let i = 1; i <= steps; i++) {
                         const ang = startAngle + (endAngle - startAngle) * (i / steps);
@@ -228,11 +231,13 @@ function buildFEModel(entities, gridSize) {
     for (const ent of processedEntities) {
         if (ent.type === 'moment') {
             const nId = getOrCreateNode(ent.p1);
-            const mag = parseFloat(ent.magnitude || "10");
+            let mag = parseFloat(ent.magnitude);
+            if (isNaN(mag)) mag = String(ent.magnitude).trim().startsWith('-') ? -10 : 10;
             pointsLoads.push({ node: nId, fx: 0, fy: 0, mz: -mag }); // Negative assuming clockwise logic
         } else if (ent.type === 'force') {
             const nId = getOrCreateNode(ent.p2); // Force is applied at the tip (p2)
-            const mag = parseFloat(ent.magnitude || "10");
+            let mag = parseFloat(ent.magnitude);
+            if (isNaN(mag)) mag = String(ent.magnitude).trim().startsWith('-') ? -10 : 10;
             
             // Vector from start (p1) to tip (p2)
             const dx = ent.p2.x - ent.p1.x;
@@ -253,11 +258,20 @@ function buildFEModel(entities, gridSize) {
             // Very simplified projection to nodes for now, or just mapping to element geometry
             const n1 = getOrCreateNode(ent.p1);
             const n2 = getOrCreateNode(ent.p2);
+            let raw1 = ent.startMagnitude !== undefined ? ent.startMagnitude : ent.magnitude;
+            let w1 = parseFloat(raw1);
+            if (isNaN(w1)) w1 = String(raw1).trim().startsWith('-') ? -10 : 10;
+            
+            let raw2 = ent.endMagnitude !== undefined ? ent.endMagnitude : raw1;
+            let w2 = parseFloat(raw2);
+            if (isNaN(w2)) w2 = String(raw2).trim().startsWith('-') ? -10 : 10;
+            
             distLoads.push({
                 n1: n1,
                 n2: n2,
-                w1: parseFloat(ent.startMagnitude || "10"),
-                w2: parseFloat(ent.endMagnitude || ent.startMagnitude || "10")
+                w1: w1,
+                w2: w2,
+                projectDownwards: ent.projectDownwards === true
             });
         }
     }
@@ -439,20 +453,73 @@ function solveFEModel(model) {
             const d1 = Math.hypot(ecx - ln1.x, ecy - ln1.y);
             const d2 = Math.hypot(ln2.x - ecx, ln2.y - ecy);
             
-            // Check if element center geometrically lies on the dist load path
-            if (Math.abs((d1 + d2) - dlLen) < DIST_TOLERANCE) {
+            let applyLoad = false;
+            let dStart, dEnd;
+            let overlapRatio = 1.0;
+            
+            if (dl.projectDownwards) {
+                const minX = Math.min(ln1.x, ln2.x);
+                const maxX = Math.max(ln1.x, ln2.x);
+                const elMinX = Math.min(en1.x, en2.x);
+                const elMaxX = Math.max(en1.x, en2.x);
+                
+                const overlapStart = Math.max(minX, elMinX);
+                const overlapEnd = Math.min(maxX, elMaxX);
+                
+                if (overlapEnd > overlapStart + 1e-4) {
+                    applyLoad = true;
+                    // Project entirely based on horizontal fraction relative to draw length
+                    const dxT = ln2.x - ln1.x;
+                    const elDx = Math.abs(elMaxX - elMinX);
+                    overlapRatio = (overlapEnd - overlapStart) / (elDx || 1);
+                    
+                    if (Math.abs(dxT) < 1e-6) {
+                        dStart = 0; dEnd = dlLen;
+                    } else {
+                        // Midpoint of the actual overlap 
+                        const midX = (overlapStart + overlapEnd) / 2;
+                        const distToMid = Math.abs((midX - ln1.x) / dxT) * dlLen;
+                        // Use mid point intensity as uniform for this segment computation
+                        dStart = distToMid; 
+                        dEnd = distToMid; 
+                    }
+                }
+            } else {
+                if (Math.abs((d1 + d2) - dlLen) < DIST_TOLERANCE) {
+                    applyLoad = true;
+                    dStart = Math.hypot(en1.x - ln1.x, en1.y - ln1.y);
+                    dEnd = Math.hypot(en2.x - ln1.x, en2.y - ln1.y);
+                }
+            }
+
+            if (applyLoad) {
                 const elLen = Math.hypot(en2.x - en1.x, en2.y - en1.y);
                 
                 // Interpolate load magnitudes at element start and end
-                const dStart = Math.hypot(en1.x - ln1.x, en1.y - ln1.y);
-                const dEnd = Math.hypot(en2.x - ln1.x, en2.y - ln1.y);
-                
                 const wStart = dl.w1 + (dl.w2 - dl.w1) * (dStart / dlLen);
                 const wEnd = dl.w1 + (dl.w2 - dl.w1) * (dEnd / dlLen);
                 
                 // Average load (simplified rectangular area for Fixed End Forces)
-                // Assuming wAvg represents a gravity/transverse load pushing in the local -y direction
                 const wAvg = (wStart + wEnd) / 2;
+                
+                let wy, wx;
+                if (dl.projectDownwards) {
+                    const c = elLen > 0 ? (en2.x - en1.x) / elLen : 1;
+                    const s = elLen > 0 ? (en2.y - en1.y) / elLen : 0;
+                    
+                    // Total vertical force on this element is W_down = wAvg * (el_horizontal_length * overlapRatio)
+                    // Then distributed as uniform equivalent: w_eff = W_down / elLen
+                    // Since el_horizontal_length = elLen * Math.abs(c):
+                    // w_eff = wAvg * overlapRatio * Math.abs(c);
+                    // Local components: wx = w_eff * s, wy = w_eff * c
+                    
+                    const wEff = wAvg * overlapRatio * Math.abs(c);
+                    wy = wEff * c;
+                    wx = wEff * s;
+                } else {
+                    wy = wAvg;
+                    wx = 0;
+                }
                 
                 const h1 = en1.isHinge;
                 const h2 = en2.isHinge;
@@ -460,36 +527,36 @@ function solveFEModel(model) {
                 let f_local;
                 if (el.type === 'truss' || (h1 && h2)) {
                     // Pinned-Pinned: purely shear transfer to nodes
-                    f_local = [0, -wAvg * elLen / 2, 0, 0, -wAvg * elLen / 2, 0];
+                    f_local = [-wx * elLen / 2, -wy * elLen / 2, 0, -wx * elLen / 2, -wy * elLen / 2, 0];
                 } else if (h1 && !h2) {
                     // Pinned-Fixed
                     f_local = [
-                        0, 
-                        - (3 * wAvg * elLen) / 8, 
+                        -wx * elLen / 2, 
+                        - (3 * wy * elLen) / 8, 
                         0,
-                        0, 
-                        - (5 * wAvg * elLen) / 8, 
-                        (wAvg * elLen * elLen) / 8
+                        -wx * elLen / 2, 
+                        - (5 * wy * elLen) / 8, 
+                        (wy * elLen * elLen) / 8
                     ];
                 } else if (!h1 && h2) {
                     // Fixed-Pinned
                     f_local = [
-                        0, 
-                        - (5 * wAvg * elLen) / 8, 
-                        - (wAvg * elLen * elLen) / 8,
-                        0, 
-                        - (3 * wAvg * elLen) / 8, 
+                        -wx * elLen / 2, 
+                        - (5 * wy * elLen) / 8, 
+                        - (wy * elLen * elLen) / 8,
+                        -wx * elLen / 2, 
+                        - (3 * wy * elLen) / 8, 
                         0
                     ];
                 } else {
                     // Standard Rigid Fixed-Fixed ends
                     f_local = [
-                        0, 
-                        -wAvg * elLen / 2, 
-                        -wAvg * elLen * elLen / 12,
-                        0, 
-                        -wAvg * elLen / 2, 
-                        wAvg * elLen * elLen / 12
+                        -wx * elLen / 2, 
+                        -wy * elLen / 2, 
+                        -wy * elLen * elLen / 12,
+                        -wx * elLen / 2, 
+                        -wy * elLen / 2, 
+                        wy * elLen * elLen / 12
                     ];
                 }
                 

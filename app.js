@@ -97,7 +97,7 @@ function updatePropertyPanel() {
         const containersToHide = [
             'prop-magnitude-container', 'prop-distload-range-container', 'prop-loadheight-container', 'prop-perpload-container',
             'prop-angle-container', 'prop-length-container', 'prop-dim-container', 'prop-beam-rotate-container',
-            'prop-text-container', 'prop-line-container', 'prop-arrow-container', 'prop-force-details-container', 'prop-stiffness-container', 'prop-image-container'
+            'prop-text-container', 'prop-line-container', 'prop-arrow-container', 'prop-force-details-container', 'prop-stiffness-container', 'prop-image-container', 'prop-show-magnitude-container'
         ];
         
         containersToHide.forEach(id => {
@@ -133,9 +133,11 @@ function updatePropertyPanel() {
     const stiffnessCont = document.getElementById('prop-stiffness-container');
     const sectionCont = document.getElementById('prop-section-container');
     const imageCont = document.getElementById('prop-image-container');
+    const showMagCont = document.getElementById('prop-show-magnitude-container');
     
     magCont.classList.add('hidden');
     distRangeCont.classList.add('hidden');
+    if (showMagCont) showMagCont.classList.add('hidden');
     perpLoadCont.classList.add('hidden');
     angCont.classList.add('hidden');
     lenCont.classList.add('hidden');
@@ -164,6 +166,15 @@ function updatePropertyPanel() {
         if (ent.type === 'distload') {
             distRangeCont.classList.remove('hidden');
             if (loadHeightCont) loadHeightCont.classList.remove('hidden');
+            
+            const showMagCont = document.getElementById('prop-show-magnitude-container');
+            if (showMagCont) showMagCont.classList.remove('hidden');
+            const showMagCheckbox = document.getElementById('prop-show-magnitude');
+            if (showMagCheckbox) showMagCheckbox.checked = ent.showMagnitude !== false;
+            
+            const projectCheckbox = document.getElementById('prop-project-load');
+            if (projectCheckbox) projectCheckbox.checked = ent.projectDownwards === true;
+            
             document.getElementById('prop-distload-start').value = ent.startMagnitude !== undefined ? ent.startMagnitude : (ent.magnitude || '10');
             document.getElementById('prop-distload-end').value = ent.endMagnitude !== undefined ? ent.endMagnitude : (ent.magnitude || '10');
             if (document.getElementById('prop-loadheight')) {
@@ -363,6 +374,18 @@ document.getElementById('prop-image-opacity').addEventListener('input', (e) => {
 document.getElementById('prop-distload-start').addEventListener('input', (e) => {
     updateSelectedEntities(ent => {
         ent.startMagnitude = e.target.value;
+    });
+});
+
+document.getElementById('prop-show-magnitude')?.addEventListener('change', (e) => {
+    updateSelectedEntities(ent => {
+        ent.showMagnitude = e.target.checked;
+    });
+});
+
+document.getElementById('prop-project-load')?.addEventListener('change', (e) => {
+    updateSelectedEntities(ent => {
+        ent.projectDownwards = e.target.checked;
     });
 });
 
@@ -2232,6 +2255,8 @@ const EntityLogic = {
             ctx.moveTo(ent.p2.x, ent.p2.y);
             ctx.lineTo(ent.p2.x - headlen * Math.cos(angle + Math.PI / 6), ent.p2.y - headlen * Math.sin(angle + Math.PI / 6));
             
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
             ctx.strokeStyle = isSelected ? '#3b82f6' : styleSettings[ent.type].rgba;
             ctx.lineWidth = styleSettings[ent.type].weight;
 
@@ -2264,6 +2289,8 @@ const EntityLogic = {
     distload: {
         draw: (ctx, ent, isSelected, isPreview) => {
             ctx.save();
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
             ctx.beginPath();
             ctx.moveTo(ent.p1.x, ent.p1.y);
             ctx.lineTo(ent.p2.x, ent.p2.y);
@@ -2281,10 +2308,21 @@ const EntityLogic = {
             if (len > 0) {
                 const nx = -dy / len;
                 const ny = dx / len;
-                const baseHeight = (ent.loadHeight !== undefined ? ent.loadHeight : 25) * (state.symbolScale || 1.0);
-                const hStart = baseHeight * (ent.startMagnitude !== undefined ? parseFloat(ent.startMagnitude) / Math.max(parseFloat(ent.startMagnitude), parseFloat(ent.endMagnitude || ent.startMagnitude), 1) : 1); 
+                
+                let rawStart = ent.startMagnitude !== undefined ? ent.startMagnitude : (ent.magnitude || '10');
+                let rawEnd = ent.endMagnitude !== undefined ? ent.endMagnitude : (ent.magnitude || '10');
+                
+                let mStart = parseFloat(rawStart);
+                let mEnd = parseFloat(rawEnd);
+                
+                if (isNaN(mStart)) mStart = String(rawStart).trim().startsWith('-') ? -10 : 10;
+                if (isNaN(mEnd)) mEnd = String(rawEnd).trim().startsWith('-') ? -10 : 10;
 
-                const hEnd = baseHeight * (ent.endMagnitude !== undefined ? parseFloat(ent.endMagnitude) / Math.max(parseFloat(ent.startMagnitude || 10), parseFloat(ent.endMagnitude), 1) : 1);
+                const maxMag = Math.max(Math.abs(mStart), Math.abs(mEnd), 1);
+                
+                const baseHeight = (ent.loadHeight !== undefined ? ent.loadHeight : 25) * (state.symbolScale || 1.0);
+                const hStart = baseHeight * (mStart / maxMag);
+                const hEnd = baseHeight * (mEnd / maxMag);
                 
                 ctx.beginPath();
                 ctx.moveTo(ent.p1.x - nx * hStart, ent.p1.y - ny * hStart);
@@ -2306,38 +2344,41 @@ const EntityLogic = {
                     // Arrow head
                     const al = 6;
                     const aw = 3;
+                    const sDir = h >= 0 ? 1 : -1;
                     ctx.beginPath();
                     ctx.moveTo(px, py);
-                    ctx.lineTo(px - nx * al + ny * aw, py - ny * al - nx * aw);
+                    ctx.lineTo(px - nx * al * sDir + ny * aw, py - ny * al * sDir - nx * aw);
                     ctx.moveTo(px, py);
-                    ctx.lineTo(px - nx * al - ny * aw, py - ny * al + nx * aw);
+                    ctx.lineTo(px - nx * al * sDir - ny * aw, py - ny * al * sDir + nx * aw);
                     ctx.stroke();
                 }
 
                 // Text
-                let textStr = ent.magnitude || '10';
-                if (ent.startMagnitude !== undefined && ent.endMagnitude !== undefined) {
-                    textStr = ent.startMagnitude === ent.endMagnitude ? ent.startMagnitude : `${ent.startMagnitude} to ${ent.endMagnitude}`;
-                }
-                const unitStr = ent.unit !== undefined ? ent.unit : 'kN/m';
-                if (ent.prefix && ent.prefix.trim() !== '') {
-                    textStr = `${ent.prefix} = ${textStr} ${unitStr}`;
-                } else if (unitStr !== '') {
-                    textStr = `${textStr} ${unitStr}`;
-                }
+                if (ent.showMagnitude !== false) {
+                    let textStr = ent.magnitude || '10';
+                    if (ent.startMagnitude !== undefined && ent.endMagnitude !== undefined) {
+                        textStr = ent.startMagnitude === ent.endMagnitude ? ent.startMagnitude : `${ent.startMagnitude} to ${ent.endMagnitude}`;
+                    }
+                    const unitStr = ent.unit !== undefined ? ent.unit : 'kN/m';
+                    if (ent.prefix && ent.prefix.trim() !== '') {
+                        textStr = `${ent.prefix} = ${textStr} ${unitStr}`;
+                    } else if (unitStr !== '') {
+                        textStr = `${textStr} ${unitStr}`;
+                    }
 
-                const midX = (ent.p1.x + ent.p2.x) / 2;
-                const midY = (ent.p1.y + ent.p2.y) / 2;
-                const midH = (hStart + hEnd) / 2;
-                
-                ctx.translate(midX - nx * (midH + 8), midY - ny * (midH + 8));
-                let angle = Math.atan2(dy, dx);
-                if (Math.abs(angle) > Math.PI/2) angle += Math.PI;
-                ctx.rotate(angle);
-                ctx.font = `${styleSettings[ent.type].text}px sans-serif`;
-                ctx.fillStyle = ctx.strokeStyle;
-                ctx.textAlign = 'center';
-                ctx.fillText(textStr, 0, 0);
+                    const midX = (ent.p1.x + ent.p2.x) / 2;
+                    const midY = (ent.p1.y + ent.p2.y) / 2;
+                    const midH = (hStart + hEnd) / 2;
+                    
+                    ctx.translate(midX - nx * (midH + 8), midY - ny * (midH + 8));
+                    let angle = Math.atan2(dy, dx);
+                    if (Math.abs(angle) > Math.PI/2) angle += Math.PI;
+                    ctx.rotate(angle);
+                    ctx.font = `${styleSettings[ent.type].text}px sans-serif`;
+                    ctx.fillStyle = ctx.strokeStyle;
+                    ctx.textAlign = 'center';
+                    ctx.fillText(textStr, 0, 0);
+                }
             }
             ctx.restore();
         },
@@ -2348,6 +2389,8 @@ const EntityLogic = {
         draw: (ctx, ent, isSelected) => {
             ctx.save();
             applyEntityTransform(ctx, ent);
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
             ctx.beginPath();
             ctx.arc(0, 0, 25, 0, Math.PI * 1.5, false); // 270 deg arc
             ctx.strokeStyle = isSelected ? '#3b82f6' : styleSettings[ent.type].rgba;
