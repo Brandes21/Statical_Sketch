@@ -1,4 +1,10 @@
 // Initialize Canvas and Tools
+const _origParseFloat = window.parseFloat;
+window.parseFloat = function(val) {
+    if (typeof val === 'string') val = val.replace(',', '.');
+    return _origParseFloat(val);
+};
+
 const canvas = document.getElementById('sketch-canvas');
 const ctx = canvas.getContext('2d');
 const wrapper = document.getElementById('canvas-wrapper');
@@ -34,7 +40,7 @@ let state = {
     hoveredDiagramValue: null, // format: { pt: {x,y}, value: number, label: string }
     mouseWorldPos: null,
     
-    gridSize: 20,
+    gridSize: 50,
     symbolScale: 1.0,
     cursorPt: {x: 0, y: 0},
     isTypingDistance: false,
@@ -95,7 +101,7 @@ function updatePropertyPanel() {
         document.getElementById('prop-type-name').innerText = `Multiple Items (${state.selectedIds.length})`;
         
         const containersToHide = [
-            'prop-magnitude-container', 'prop-distload-range-container', 'prop-loadheight-container', 'prop-perpload-container',
+            'prop-magnitude-container', 'prop-distload-range-container', 'prop-loadheight-container',
             'prop-angle-container', 'prop-length-container', 'prop-dim-container', 'prop-beam-rotate-container',
             'prop-text-container', 'prop-line-container', 'prop-arrow-container', 'prop-force-details-container', 'prop-stiffness-container', 'prop-image-container', 'prop-show-magnitude-container'
         ];
@@ -121,7 +127,6 @@ function updatePropertyPanel() {
     const magCont = document.getElementById('prop-magnitude-container');
     const distRangeCont = document.getElementById('prop-distload-range-container');
     const loadHeightCont = document.getElementById('prop-loadheight-container');
-    const perpLoadCont = document.getElementById('prop-perpload-container');
     const angCont = document.getElementById('prop-angle-container');
     const lenCont = document.getElementById('prop-length-container');
     const dimCont = document.getElementById('prop-dim-container');
@@ -138,7 +143,6 @@ function updatePropertyPanel() {
     magCont.classList.add('hidden');
     distRangeCont.classList.add('hidden');
     if (showMagCont) showMagCont.classList.add('hidden');
-    perpLoadCont.classList.add('hidden');
     angCont.classList.add('hidden');
     lenCont.classList.add('hidden');
     if (loadHeightCont) loadHeightCont.classList.add('hidden');
@@ -193,8 +197,8 @@ function updatePropertyPanel() {
             // Adjust options for force vs distload
             const unitSelect = document.getElementById('prop-force-unit');
             unitSelect.innerHTML = ent.type === 'distload' 
-                ? '<option value="kN/m">kN/m</option><option value="N/m">N/m</option><option value="">(None)</option>'
-                : '<option value="kN">kN</option><option value="N">N</option><option value="">(None)</option>';
+                ? '<option value="kN/m">kN/m</option><option value="">(None)</option>'
+                : '<option value="kN">kN</option><option value="">(None)</option>';
                 
             unitSelect.value = ent.unit !== undefined ? ent.unit : defaultUnit;
         } else {
@@ -204,11 +208,6 @@ function updatePropertyPanel() {
         document.getElementById('prop-force-details-container').classList.add('hidden');
     }
 
-    if (['arc', 'parabola'].includes(ent.type)) {
-        perpLoadCont.classList.remove('hidden');
-        document.getElementById('prop-perpload').value = ent.perpLoad || '';
-    }
-    
     if (['pin', 'roller', 'fixed', 'spring', 'rotspr', 'textLabel', 'force', 'coordsys'].includes(ent.type)) {
         angCont.classList.remove('hidden');
         document.getElementById('prop-angle').value = ent.angle ? Math.round(ent.angle * 180 / Math.PI) : 0;
@@ -246,29 +245,52 @@ function updatePropertyPanel() {
         }
     }
 
-    if (['beam', 'arc', 'parabola'].includes(ent.type)) {
+    if (ent.type === 'beam') {
         beamRotCont.classList.remove('hidden');
         document.getElementById('prop-beam-rot-angle').value = 0;
 
         if (sectionCont) {
             sectionCont.classList.remove('hidden');
-            const isDefault = ent.sectionDefault !== false; // Default true
-            document.getElementById('prop-section-default').checked = isDefault;
-            if (isDefault) {
+            const profile = ent.sectionProfile || (ent.sectionDefault === false ? 'custom' : 'default');
+            const selEl = document.getElementById('prop-section-profile');
+            if (selEl) selEl.value = profile;
+            
+            if (profile === 'default') {
                 document.getElementById('prop-section-custom').classList.add('hidden');
             } else {
                 document.getElementById('prop-section-custom').classList.remove('hidden');
+                
+                // If it's a standard profile, we could disable the inputs to signify they are read-only
+                const readOnly = profile !== 'custom';
+                document.getElementById('prop-section-a').readOnly = readOnly;
+                document.getElementById('prop-section-i').readOnly = readOnly;
+                document.getElementById('prop-section-e').readOnly = readOnly;
+                
+                if (readOnly) {
+                    document.getElementById('prop-section-a').classList.add('bg-slate-100', 'text-slate-500');
+                    document.getElementById('prop-section-i').classList.add('bg-slate-100', 'text-slate-500');
+                    document.getElementById('prop-section-e').classList.add('bg-slate-100', 'text-slate-500');
+                } else {
+                    document.getElementById('prop-section-a').classList.remove('bg-slate-100', 'text-slate-500');
+                    document.getElementById('prop-section-i').classList.remove('bg-slate-100', 'text-slate-500');
+                    document.getElementById('prop-section-e').classList.remove('bg-slate-100', 'text-slate-500');
+                }
             }
+            
             // Display values in MPa, mm2, mm4. 
             // Internal storage remains Pa, m2, m4.
             document.getElementById('prop-section-e').value = (ent.E || 200e9) / 1e6;
-            document.getElementById('prop-section-a').value = (ent.A || 0.01) * 1e6;
-            document.getElementById('prop-section-i').value = (ent.I || 1e-4) * 1e12;
+            document.getElementById('prop-section-a').value = ((ent.A || 0.01) * 1e6).toFixed(0);
+            document.getElementById('prop-section-i').value = ((ent.I || 1e-4) * 1e12).toFixed(0);
         }
         
         if (ent.type === 'beam' && document.getElementById('prop-beam-type')) {
             document.getElementById('prop-beam-type').parentElement.classList.remove('hidden');
-            document.getElementById('prop-beam-type').value = ent.isTruss ? 'truss' : 'beam';
+            let bType = 'beam';
+            if (ent.isTruss) bType = 'truss';
+            if (ent.beamType) bType = ent.beamType;
+            document.getElementById('prop-beam-type').value = bType;
+            document.getElementById('prop-beam-end-dots').checked = !ent.hideEndDots;
         } else if (document.getElementById('prop-beam-type')) {
             document.getElementById('prop-beam-type').parentElement.classList.add('hidden');
         }
@@ -293,6 +315,17 @@ function updatePropertyPanel() {
 
     if (['dimension', 'angdim'].includes(ent.type)) {
         dimCont.classList.remove('hidden');
+        const unitLabel = document.getElementById('prop-dim-units-label');
+        if (unitLabel) unitLabel.innerText = ent.type === 'angdim' ? (ent.dimRadians ? 'Show Units (rad)' : 'Show Units (deg)') : 'Show Units (m)';
+        const radWrapper = document.getElementById('prop-dim-radians-wrapper');
+        if (radWrapper) {
+            if (ent.type === 'angdim') {
+                radWrapper.classList.remove('hidden');
+                document.getElementById('prop-dim-radians').checked = ent.dimRadians === true;
+            } else {
+                radWrapper.classList.add('hidden');
+            }
+        }
         document.getElementById('prop-dim-text').value = ent.dimText || '';
         document.getElementById('prop-dim-units').checked = ent.dimUnits !== false; // Default true
         document.getElementById('prop-dim-decimals').value = ent.dimDecimals !== undefined ? ent.dimDecimals : (ent.type === 'angdim' ? 1 : 3);
@@ -329,6 +362,8 @@ function updatePropertyPanel() {
             document.getElementById('prop-arrow-color').value = ent.color || '#000000';
             document.getElementById('prop-arrow-dashed').checked = ent.dashed || false;
             document.getElementById('prop-arrow-scale').value = ent.arrowScale || 1.0;
+            document.getElementById('prop-arrow-filled').checked = ent.filledHead || false;
+            document.getElementById('prop-arrow-double').checked = ent.doubleHead || false;
         } else {
             arrowCont.classList.add('hidden');
         }
@@ -343,6 +378,7 @@ function updatePropertyPanel() {
             document.getElementById('prop-coordsys-color').value = ent.color || '#000000';
             document.getElementById('prop-coordsys-flip-x').checked = ent.flipX || false;
             document.getElementById('prop-coordsys-flip-y').checked = ent.flipY || false;
+            document.getElementById('prop-coordsys-scale').value = ent.csScale || 1.0;
         } else {
             coordsysCont.classList.add('hidden');
         }
@@ -369,6 +405,15 @@ document.getElementById('prop-image-opacity').addEventListener('input', (e) => {
             ent.opacity = parseFloat(e.target.value);
         }
     });
+});
+
+document.getElementById('btn-calibrate-image').addEventListener('click', () => {
+    if (state.selectedEntityId) {
+        state.tool = 'calibrate';
+        state.calibratePoints = [];
+        state.calibratingEntityId = state.selectedEntityId;
+        wrapper.style.cursor = 'crosshair';
+    }
 });
 
 document.getElementById('prop-distload-start').addEventListener('input', (e) => {
@@ -412,12 +457,6 @@ document.getElementById('prop-force-prefix').addEventListener('input', (e) => {
 document.getElementById('prop-force-unit').addEventListener('change', (e) => {
     updateSelectedEntities(ent => {
         if (['force', 'distload'].includes(ent.type)) ent.unit = e.target.value;
-    });
-});
-
-document.getElementById('prop-perpload').addEventListener('input', (e) => {
-    updateSelectedEntities(ent => {
-        ent.perpLoad = e.target.value;
     });
 });
 
@@ -481,26 +520,57 @@ document.getElementById('prop-length').addEventListener('input', (e) => {
     });
 });
 
-['prop-section-default', 'prop-section-e', 'prop-section-a', 'prop-section-i'].forEach(id => {
+['prop-section-profile', 'prop-section-e', 'prop-section-a', 'prop-section-i'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
-    const eventName = id === 'prop-section-default' ? 'change' : 'input';
+    const eventName = id === 'prop-section-profile' ? 'change' : 'input';
     el.addEventListener(eventName, (e) => {
         updateSelectedEntities(ent => {
-            if (['beam', 'arc', 'parabola'].includes(ent.type)) {
-                if (id === 'prop-section-default') {
-                    ent.sectionDefault = e.target.checked;
-                    if (e.target.checked) {
+            if (ent.type === 'beam') {
+                if (id === 'prop-section-profile') {
+                    const profile = e.target.value;
+                    ent.sectionProfile = profile;
+                    ent.sectionDefault = (profile === 'default');
+                    
+                    if (profile === 'default') {
                         document.getElementById('prop-section-custom').classList.add('hidden');
                         delete ent.E;
                         delete ent.A;
                         delete ent.I;
                     } else {
                         document.getElementById('prop-section-custom').classList.remove('hidden');
-                        // Initialize them if they don't exist
-                        ent.E = ent.E || 200e9;
-                        ent.A = ent.A || 0.01;
-                        ent.I = ent.I || 1e-4;
+                        
+                        ent.E = ent.E || 200e9; // Keep existing E or default to 200GPa steel
+                        
+                        const readOnly = profile !== 'custom';
+                        document.getElementById('prop-section-a').readOnly = readOnly;
+                        document.getElementById('prop-section-i').readOnly = readOnly;
+                        document.getElementById('prop-section-e').readOnly = readOnly;
+                        
+                        if (readOnly) {
+                            document.getElementById('prop-section-a').classList.add('bg-slate-100', 'text-slate-500');
+                            document.getElementById('prop-section-i').classList.add('bg-slate-100', 'text-slate-500');
+                            document.getElementById('prop-section-e').classList.add('bg-slate-100', 'text-slate-500');
+                            
+                            // Load from library
+                            if (PROFILE_LIBRARY[profile]) {
+                                ent.A = PROFILE_LIBRARY[profile].a / 1e6; // to m2
+                                ent.I = PROFILE_LIBRARY[profile].i / 1e12; // to m4
+                                
+                                document.getElementById('prop-section-a').value = PROFILE_LIBRARY[profile].a.toFixed(0);
+                                document.getElementById('prop-section-i').value = PROFILE_LIBRARY[profile].i.toFixed(0);
+                            }
+                        } else {
+                            document.getElementById('prop-section-a').classList.remove('bg-slate-100', 'text-slate-500');
+                            document.getElementById('prop-section-i').classList.remove('bg-slate-100', 'text-slate-500');
+                            document.getElementById('prop-section-e').classList.remove('bg-slate-100', 'text-slate-500');
+                            ent.A = ent.A || 0.01;
+                            ent.I = ent.I || 1e-4;
+                            
+                            document.getElementById('prop-section-a').value = (ent.A * 1e6).toFixed(0);
+                            document.getElementById('prop-section-i').value = (ent.I * 1e12).toFixed(0);
+                        }
+                        document.getElementById('prop-section-e').value = (ent.E / 1e6).toFixed(0);
                     }
                 } else if (id === 'prop-section-e') ent.E = parseFloat(e.target.value) * 1e6; // MPa to Pa
                 else if (id === 'prop-section-a') ent.A = parseFloat(e.target.value) / 1e6; // mm2 to m2
@@ -508,18 +578,19 @@ document.getElementById('prop-length').addEventListener('input', (e) => {
             }
         });
         // Clear cached solver results when stiffness changes
-        if (id !== 'prop-section-default' || e.target.checked === false) {
+        if (id !== 'prop-section-profile' || e.target.value !== 'default') {
             state.feResults = null;
         }
     });
 });
 
-['prop-dim-text', 'prop-dim-units', 'prop-dim-decimals', 'prop-dim-lines', 'prop-dim-short-lines', 'prop-dim-short-length'].forEach(id => {
+['prop-dim-text', 'prop-dim-units', 'prop-dim-radians', 'prop-dim-decimals', 'prop-dim-lines', 'prop-dim-short-lines', 'prop-dim-short-length'].forEach(id => {
     document.getElementById(id).addEventListener('input', (e) => {
         updateSelectedEntities(ent => {
             if (['dimension', 'angdim'].includes(ent.type)) {
                 if (id === 'prop-dim-text') ent.dimText = e.target.value;
                 if (id === 'prop-dim-units') ent.dimUnits = e.target.checked;
+                if (id === 'prop-dim-radians') { ent.dimRadians = e.target.checked; const ul = document.getElementById('prop-dim-units-label'); if (ul) ul.innerText = ent.dimRadians ? 'Show Units (rad)' : 'Show Units (deg)'; }
                 if (id === 'prop-dim-decimals') {
                     const dec = parseInt(e.target.value);
                     ent.dimDecimals = isNaN(dec) ? (ent.type === 'angdim' ? 1 : 3) : dec;
@@ -566,7 +637,7 @@ document.getElementById('prop-length').addEventListener('input', (e) => {
     });
 });
 
-['prop-arrow-weight', 'prop-arrow-color', 'prop-arrow-dashed', 'prop-arrow-scale'].forEach(id => {
+['prop-arrow-weight', 'prop-arrow-color', 'prop-arrow-dashed', 'prop-arrow-scale', 'prop-arrow-filled', 'prop-arrow-double'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     const eventName = id === 'prop-arrow-color' || id === 'prop-arrow-weight' || id === 'prop-arrow-scale' ? 'input' : 'change';
@@ -577,15 +648,17 @@ document.getElementById('prop-length').addEventListener('input', (e) => {
                 if (id === 'prop-arrow-color') ent.color = e.target.value;
                 if (id === 'prop-arrow-dashed') ent.dashed = e.target.checked;
                 if (id === 'prop-arrow-scale') ent.arrowScale = parseFloat(e.target.value);
+                if (id === 'prop-arrow-filled') ent.filledHead = e.target.checked;
+                if (id === 'prop-arrow-double') ent.doubleHead = e.target.checked;
             }
         });
     });
 });
 
-['prop-coordsys-xtext', 'prop-coordsys-ytext', 'prop-coordsys-weight', 'prop-coordsys-color', 'prop-coordsys-flip-x', 'prop-coordsys-flip-y'].forEach(id => {
+['prop-coordsys-xtext', 'prop-coordsys-ytext', 'prop-coordsys-weight', 'prop-coordsys-color', 'prop-coordsys-flip-x', 'prop-coordsys-flip-y', 'prop-coordsys-scale'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
-    const eventName = ['prop-coordsys-color', 'prop-coordsys-xtext', 'prop-coordsys-ytext'].includes(id) ? 'input' : 'change';
+    const eventName = ['prop-coordsys-color', 'prop-coordsys-xtext', 'prop-coordsys-ytext', 'prop-coordsys-scale'].includes(id) ? 'input' : 'change';
     el.addEventListener(eventName, (e) => {
         updateSelectedEntities(ent => {
             if (ent.type === 'coordsys') {
@@ -595,6 +668,7 @@ document.getElementById('prop-length').addEventListener('input', (e) => {
                 if (id === 'prop-coordsys-color') ent.color = e.target.value;
                 if (id === 'prop-coordsys-flip-x') ent.flipX = e.target.checked;
                 if (id === 'prop-coordsys-flip-y') ent.flipY = e.target.checked;
+                if (id === 'prop-coordsys-scale') { const v = parseFloat(e.target.value); if (v > 0) ent.csScale = v; }
             }
         });
     });
@@ -605,18 +679,27 @@ if (typeEl) {
     typeEl.addEventListener('change', (e) => {
         updateSelectedEntities(ent => {
             if (ent.type === 'beam') {
-                ent.isTruss = e.target.value === 'truss';
+                ent.beamType = e.target.value;
+                ent.isTruss = (e.target.value === 'truss');
             }
         });
     });
 }
 
+const endDotsEl = document.getElementById('prop-beam-end-dots');
+if (endDotsEl) {
+    endDotsEl.addEventListener('change', (e) => {
+        updateSelectedEntities(ent => {
+            if (ent.type === 'beam') ent.hideEndDots = !e.target.checked;
+        });
+    });
+}
 ['prop-beam-p1-x', 'prop-beam-p1-y', 'prop-beam-p2-x', 'prop-beam-p2-y'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('change', (e) => {
         updateSelectedEntities(ent => {
-            if (['beam', 'arc', 'parabola'].includes(ent.type)) {
+            if (ent.type === 'beam') {
                 const val = parseFloat(e.target.value);
                 if (!isNaN(val)) {
                     if (id === 'prop-beam-p1-x') ent.p1.x = val * state.gridSize;
@@ -639,7 +722,7 @@ document.getElementById('btn-prop-beam-rotate').addEventListener('click', () => 
     saveState();
 
     updateSelectedEntities(ent => {
-        if (!['beam', 'arc', 'parabola'].includes(ent.type)) return;
+        if (ent.type !== 'beam') return;
 
         let pivot = { x: 0, y: 0 };
         if (pivotType === 'p1') {
@@ -680,7 +763,22 @@ document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => {
         document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
         e.currentTarget.classList.add('active');
         state.tool = e.currentTarget.getAttribute('data-tool');
+        
+        if (state.tool === 'arrayload') {
+            const countStr = prompt("How many discrete loads in this array?", "5");
+            const count = parseInt(countStr, 10);
+            if (!isNaN(count) && count >= 2) {
+                state.arrayLoadCount = count;
+            } else {
+                state.tool = 'select';
+                document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+                document.querySelector('.tool-btn[data-tool="select"]')?.classList.add('active');
+            }
+        }
+        
         state.selectedEntityId = null;
+        state.calibratePoints = [];
+        state.calibratingEntityId = null;
         
         // Reset any drawing in progress
         if (state.drawingStep === 1) {
@@ -700,7 +798,7 @@ document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => {
 
 document.addEventListener('keydown', (e) => {
     // Rhino-like CAD input: capture numbers automatically while drawing
-    if (e.target.tagName !== 'INPUT' && e.key.length === 1 && /[0-9.-]/.test(e.key)) {
+    if (e.target.tagName !== 'INPUT' && e.key.length === 1 && /[0-9.,-]/.test(e.key)) {
         if (snapMode.trackAxis && snapMode.trackRef && !['select', 'dimension'].includes(state.tool)) {
             // Smart tracking distance configuration has priority when actively tracking an axis!
             state.isTypingDistance = true;
@@ -723,13 +821,13 @@ document.addEventListener('keydown', (e) => {
             e.preventDefault();
             return;
         } else if (state.tempEntity && (
-            (state.drawingStep === 1 && ['beam', 'distload', 'dimension'].includes(state.tempEntity.type)) || 
-            (state.drawingStep === 2 && ['arc', 'parabola'].includes(state.tempEntity.type))
+            (state.drawingStep === 1 && ['beam', 'distload', 'dimension', 'arrayload'].includes(state.tempEntity.type)) || 
+            (state.drawingStep === 3 && state.tool === 'chaindim')
         )) {
+            const lp = document.getElementById('cad-input-panel');
             const inp = document.getElementById('cad-input');
-            let label = 'Length';
-            if (['arc', 'parabola'].includes(state.tempEntity.type)) label = 'Height/Radius';
-            document.getElementById('cad-input-label').innerText = label;
+            document.getElementById('cad-input-label').innerText = 'Length';
+            lp.classList.remove('hidden');
             inp.focus();
             inp.value += e.key;
             e.preventDefault();
@@ -739,6 +837,17 @@ document.addEventListener('keydown', (e) => {
 
     // Escape action
     if (e.key === 'Escape') {
+        if (state.tool === 'calibrate') {
+            state.tool = 'select';
+            state.calibratePoints = [];
+            state.calibratingEntityId = null;
+            wrapper.style.cursor = 'default';
+            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active-tool'));
+            const selectBtn = document.getElementById('tool-select');
+            if (selectBtn) selectBtn.classList.add('active-tool');
+            requestRedraw();
+            return;
+        }
         if (state.isTypingDistance) {
             state.isTypingDistance = false;
             document.getElementById('cad-input-panel').classList.add('hidden');
@@ -747,10 +856,18 @@ document.addEventListener('keydown', (e) => {
             return;
         }
         if (state.drawingStep > 0) {
-            state.drawingStep = 0;
-            state.tempEntity = null;
-            document.getElementById('cad-input-panel').classList.add('hidden');
-            history.undo.pop(); 
+            if (state.tool === 'chaindim' && state.drawingStep === 3) {
+                // If it's a chain dimension, escaping during step 3 just terminates the chain without an undo pop
+                state.drawingStep = 0;
+                state.tempEntity = null;
+                document.getElementById('cad-input-panel').classList.add('hidden');
+                document.querySelector(`.tool-btn[data-tool="select"]`).click();
+            } else {
+                state.drawingStep = 0;
+                state.tempEntity = null;
+                document.getElementById('cad-input-panel').classList.add('hidden');
+                history.undo.pop(); 
+            }
             requestRedraw();
         } else if (state.selectedIds.length > 0 || state.selectedEntityId) {
             state.selectedEntityId = null;
@@ -891,21 +1008,13 @@ document.getElementById('btn-solve').addEventListener('click', () => {
 
         if (results.success) {
             console.log("Solver Results:", results);
-            consoleOut.textContent += "System generated successfully.\n\n";
-            consoleOut.textContent += "=== NODAL DISPLACEMENTS ===\n";
+            consoleOut.textContent += "FE-System generated successfully.\n";
             
-            model.nodes.forEach(n => {
-                consoleOut.textContent += `Node ID: ${n.id} (FE X: ${n.x.toFixed(3)}, FE Y: ${n.y.toFixed(3)})\n`;
-                consoleOut.textContent += `  Ux: ${(n.ux * 1000).toFixed(5)} mm\n`;
-                consoleOut.textContent += `  Uy: ${(n.uy * 1000).toFixed(5)} mm\n`;
-                consoleOut.textContent += `  Rz: ${(n.rz * 1000).toFixed(5)} mrad\n\n`;
-            });
-            
-            consoleOut.textContent += "See browser dev console for full internal JSON structures.";
             lucide.createIcons();
             
             // Store results in global state and show results toolbar
             state.feResults = results;
+            setResultsMode('fe');
             document.getElementById('results-panel').classList.remove('hidden');
             
         } else {
@@ -929,6 +1038,173 @@ document.getElementById('btn-dismiss-console').addEventListener('click', () => {
 });
 
 // FE Results Toggle Logic
+
+// Shows only the buttons relevant to the current analysis type ('fe' or 'influence')
+function setResultsMode(mode) {
+    document.querySelectorAll('.diagram-toggle-btn').forEach(b => {
+        const isInf = b.dataset.diagram === 'influence';
+        b.classList.toggle('hidden', mode === 'influence' ? !isInf : isInf);
+    });
+    const minmaxWrap = document.getElementById('diagram-minmax-cb').closest('div');
+    if (minmaxWrap) minmaxWrap.classList.toggle('hidden', mode === 'influence');
+    document.getElementById('btn-generate-report').classList.toggle('hidden', mode === 'influence');
+}
+
+document.getElementById('btn-generate-report').addEventListener('click', () => {
+    if (!state.feResults || !state.feResults.success) return;
+
+    // Save current state
+    const originalDiagram = state.activeDiagram;
+    const origShowGrid = styleSettings.showGrid;
+    const origSelected = state.selectedEntityId;
+    const origMinMax = state.diagramMinMaxOnly;
+    
+    // Disable grid, axes, and selections for clean export
+    styleSettings.showGrid = false;
+    state.selectedEntityId = null;
+    state.showAxes = false;
+    state.diagramMinMaxOnly = true;
+
+    // Up-sample canvas resolution heavily for export printing
+    const SCALE_FACTOR = 2;
+    canvas.width = wrapper.clientWidth * SCALE_FACTOR;
+    canvas.height = wrapper.clientHeight * SCALE_FACTOR;
+    ctx.setTransform(1, 0, 0, 1, 0, 0); // reset scale
+    ctx.scale(SCALE_FACTOR, SCALE_FACTOR);
+    
+    // Function to get image data safely and cropped
+    const getImageData = (diagramType) => {
+        state.activeDiagram = diagramType;
+        render(); // Force synchronous render
+        
+        // Export exactly what the user sees, capturing with white background
+        const expCanvas = document.createElement('canvas');
+        expCanvas.width = canvas.width;
+        expCanvas.height = canvas.height;
+        const eCtx = expCanvas.getContext('2d');
+        eCtx.fillStyle = '#ffffff';
+        eCtx.fillRect(0, 0, expCanvas.width, expCanvas.height);
+        eCtx.drawImage(canvas, 0, 0);
+        
+        // Auto-Crop logic: Find bounding box of non-white pixels
+        const pixels = eCtx.getImageData(0, 0, expCanvas.width, expCanvas.height);
+        const l = pixels.data.length;
+        let bounds = { top: null, left: null, right: null, bottom: null };
+        
+        for (let i = 0; i < l; i += 4) {
+            if (pixels.data[i] !== 255 || pixels.data[i+1] !== 255 || pixels.data[i+2] !== 255) {
+                const x = (i / 4) % expCanvas.width;
+                const y = Math.floor((i / 4) / expCanvas.width);
+
+                if (bounds.top === null) bounds.top = y;
+                if (bounds.left === null || x < bounds.left) bounds.left = x;
+                if (bounds.right === null || x > bounds.right) bounds.right = x;
+                if (bounds.bottom === null || y > bounds.bottom) bounds.bottom = y;
+            }
+        }
+        
+        // If image is blank, fallback to full uncropped canvas
+        if (bounds.top === null) return { url: expCanvas.toDataURL('image/jpeg', 0.9), w: expCanvas.width, h: expCanvas.height };
+        
+        const pad = 40 * SCALE_FACTOR; // adjust padding to the new resolution
+        const bw = bounds.right - bounds.left;
+        const bh = bounds.bottom - bounds.top;
+        if (bw <= 0 || bh <= 0) return { url: expCanvas.toDataURL('image/jpeg', 0.9), w: expCanvas.width, h: expCanvas.height };
+        const trimWidth = bw + pad * 2;
+        const trimHeight = bh + pad * 2;
+        
+        const trimmed = document.createElement('canvas');
+        trimmed.width = trimWidth;
+        trimmed.height = trimHeight;
+        const tCtx = trimmed.getContext('2d');
+        tCtx.fillStyle = '#ffffff';
+        tCtx.fillRect(0, 0, trimWidth, trimHeight);
+        tCtx.drawImage(expCanvas, bounds.left, bounds.top, bw, bh, pad, pad, bw, bh);
+        
+        return { url: trimmed.toDataURL('image/jpeg', 0.9), w: trimWidth, h: trimHeight };
+    };
+
+    // Capture the views
+    const imgBase = getImageData(null);
+    const imgDeflection = getImageData('deflection');
+    const imgReactions = getImageData('reactions');
+    const imgAfd = getImageData('afd');
+    const imgSfd = getImageData('sfd');
+    const imgBmd = getImageData('bmd');
+
+    // Restore state
+    state.activeDiagram = originalDiagram;
+    styleSettings.showGrid = origShowGrid;
+    state.selectedEntityId = origSelected;
+    state.showAxes = true;
+    state.diagramMinMaxOnly = origMinMax;
+    
+    // Restore resolution safely
+    resize();
+    render();
+
+    // Generate PDF directly
+    if (!window.jspdf) {
+        alert("jsPDF library not loaded. Please ensure internet connection.");
+        return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF("p", "mm", "a4");
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 20;
+    const contentWidth = pageWidth - margin * 2;
+
+    let currentY = margin;
+
+    // Title
+    doc.setFontSize(22);
+    doc.setTextColor(15, 23, 42);
+    doc.text("FE-Sketch Analysis Report", margin, currentY);
+
+    currentY += 8;
+    // Meta string
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text("Generated on: " + new Date().toLocaleString(), margin, currentY);
+
+    currentY += 15;
+
+    const addDiagramToPDF = (imgObj, title) => {
+        if (!imgObj || !imgObj.url) return;
+        doc.setFontSize(12);
+        doc.setTextColor(30, 41, 59);
+        const titleHeight = 8;
+        let drawW = contentWidth;
+        let drawH = (imgObj.h / imgObj.w) * drawW;
+
+        if (currentY + titleHeight + drawH + 10 > pageHeight - margin) {
+            doc.addPage();
+            currentY = margin;
+        }
+
+        doc.text(title, margin, currentY);
+        currentY += titleHeight;
+        doc.addImage(imgObj.url, "JPEG", margin, currentY, drawW, drawH);
+        doc.setDrawColor(203, 213, 225);
+        doc.setLineWidth(0.5);
+        doc.rect(margin, currentY, drawW, drawH);
+        currentY += drawH + 15;
+    };
+
+    addDiagramToPDF(imgBase, "1. Structural Geometry & Applied Loads");
+    addDiagramToPDF(imgDeflection, "2. Deflected Shape");
+    addDiagramToPDF(imgReactions, "3. Reactions");
+    addDiagramToPDF(imgAfd, "4. Axial Force Diagram (AFD)");
+    addDiagramToPDF(imgSfd, "5. Shear Force Diagram (SFD)");
+    addDiagramToPDF(imgBmd, "6. Bending Moment Diagram (BMD)");
+
+    // Save directly to the user's computer
+    doc.save("FE-Sketch-Analysis-Report.pdf");
+});
+
+
 document.getElementById('btn-close-results').addEventListener('click', () => {
     state.activeDiagram = null;
     state.feResults = null;
@@ -1064,6 +1340,40 @@ document.getElementById('file-open-input').addEventListener('change', (e) => {
                 saveState(); // push current to history
                 state.entities = loadedEntities;
                 state.selectedEntityId = null;
+
+                // Loads are always in kN - relabel old sketches saved with N units (the solver already treated them as kN)
+                state.entities.forEach(ent => {
+                    if (ent.unit === 'N') ent.unit = 'kN';
+                    else if (ent.unit === 'N/m') ent.unit = 'kN/m';
+                });
+
+                // Avoid ID collisions by syncing entityCounter
+                let maxId = 0;
+                state.entities.forEach(ent => {
+                    if (ent.id && typeof ent.id === 'string' && ent.id.startsWith('ent_')) {
+                        const num = parseInt(ent.id.replace('ent_', ''), 10);
+                        if (!isNaN(num) && num > maxId) {
+                            maxId = num;
+                        }
+                    }
+                });
+
+                // Auto-cleanup imported points: If they are visually close to the grid,
+                // snap them perfectly to fix microscopic slopes causing accidental normal forces.
+                state.entities.forEach(ent => {
+                    ['p1', 'p2', 'p3'].forEach(ptKey => {
+                        const pt = ent[ptKey];
+                        if (pt) {
+                            const sx = Math.round(pt.x / state.gridSize) * state.gridSize;
+                            const sy = Math.round(pt.y / state.gridSize) * state.gridSize;
+                            if (Math.abs(pt.x - sx) < 5) pt.x = sx;
+                            if (Math.abs(pt.y - sy) < 5) pt.y = sy;
+                        }
+                    });
+                });
+
+                entityCounter = Math.max(entityCounter, maxId);
+
                 updatePropertyPanel();
                 requestRedraw();
             } else {
@@ -1170,7 +1480,7 @@ function doExport(cropBox = null) {
     
     const link = document.createElement('a');
     link.download = 'statics-sketched.png';
-    link.href = expCanvas.toDataURL('image/png');
+    link.href = expCanvas.toDataURL('image/jpeg');
     link.click();
 
     // Restore state
@@ -1201,6 +1511,225 @@ document.getElementById('btn-close-settings').addEventListener('click', () => {
 document.getElementById('vis-structure').addEventListener('change', requestRedraw);
 document.getElementById('vis-supports').addEventListener('change', requestRedraw);
 document.getElementById('vis-loads').addEventListener('change', requestRedraw);
+document.getElementById('vis-annotations').addEventListener('change', requestRedraw);
+document.getElementById('vis-dimensions').addEventListener('change', requestRedraw);
+
+// AI Import Logic
+
+// Downscale before upload: full-res photos make the API call much slower
+function downscaleSketchImage(dataUrl, maxDim = 1024) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+            const c = document.createElement('canvas');
+            c.width = Math.round(img.width * scale);
+            c.height = Math.round(img.height * scale);
+            const cctx = c.getContext('2d');
+            cctx.fillStyle = '#ffffff'; // flatten transparency for JPEG
+            cctx.fillRect(0, 0, c.width, c.height);
+            cctx.drawImage(img, 0, 0, c.width, c.height);
+            resolve(c.toDataURL('image/jpeg', 0.8));
+        };
+        img.onerror = () => resolve(dataUrl);
+        img.src = dataUrl;
+    });
+}
+
+async function analyzeSketchDataUrl(dataUrl) {
+    document.getElementById('ai-loading-overlay').classList.remove('hidden');
+    const base64 = await downscaleSketchImage(dataUrl);
+
+            try {
+                const response = await fetch('/api/scan-sketch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ imageBase64: base64 })
+                });
+
+                if(!response.ok) {
+                    if (response.status === 405 || response.status === 404) {
+                        throw new Error("The AI endpoint isn't running. Static servers (e.g. Live Server) can't execute it — start the app with 'node server.js' and open http://localhost:3000 instead.");
+                    }
+                    const errData = await response.json().catch(()=>({}));
+                    throw new Error(errData.error || 'Server returned ' + response.status);
+                }
+
+                const data = await response.json();
+                
+                const gs = state.gridSize; // Default 50
+                
+                let nodes = data.nodes || [];
+                if(nodes.length === 0) throw new Error("No nodes found in image.");
+                
+                // Anchor the leftmost (then lowest) node at world origin (0,0)
+                let anchor = nodes[0];
+                nodes.forEach(n => {
+                    if (n[0] < anchor[0] || (n[0] === anchor[0] && n[1] < anchor[1])) anchor = n;
+                });
+                const offsetX = -anchor[0] * gs;
+                const offsetY = anchor[1] * gs;
+
+                state.entities = []; 
+                let idCounter = 1;
+                
+                const nodeCoords = nodes.map(n => ({
+                    x: offsetX + n[0] * gs,
+                    y: offsetY - n[1] * gs
+                }));
+
+                // Merge collinear beam chains: loads often create intermediate nodes
+                // that needlessly split one physical beam into several elements.
+                let elements = (data.elements || []).map(el => [el[0], el[1]]);
+                const supportNodes = new Set(Object.keys(data.supports || {}).map(Number));
+                let mergedSomething = true;
+                while (mergedSomething) {
+                    mergedSomething = false;
+                    outer:
+                    for (let i = 0; i < elements.length; i++) {
+                        for (let j = i + 1; j < elements.length; j++) {
+                            const shared = elements[i].find(n => elements[j].includes(n));
+                            if (shared === undefined || supportNodes.has(shared)) continue;
+                            // only merge if the node connects exactly these two elements
+                            if (elements.filter(el => el.includes(shared)).length !== 2) continue;
+                            const a = elements[i][0] === shared ? elements[i][1] : elements[i][0];
+                            const c = elements[j][0] === shared ? elements[j][1] : elements[j][0];
+                            const pA = nodes[a], pB = nodes[shared], pC = nodes[c];
+                            if (!pA || !pB || !pC) continue;
+                            const cross = (pB[0]-pA[0])*(pC[1]-pA[1]) - (pB[1]-pA[1])*(pC[0]-pA[0]);
+                            const lenAB = Math.hypot(pB[0]-pA[0], pB[1]-pA[1]);
+                            const lenAC = Math.hypot(pC[0]-pA[0], pC[1]-pA[1]);
+                            if (Math.abs(cross) > 1e-3 * lenAB * lenAC) continue; // not collinear
+                            elements[i] = [a, c];
+                            elements.splice(j, 1);
+                            mergedSomething = true;
+                            break outer;
+                        }
+                    }
+                }
+
+                elements.forEach(el => {
+                    const p1 = nodeCoords[el[0]];
+                    const p2 = nodeCoords[el[1]];
+                    if(p1 && p2) {
+                        state.entities.push({
+                            id: Date.now() + idCounter++,
+                            type: 'beam',
+                            p1: {x: p1.x, y: p1.y},
+                            p2: {x: p2.x, y: p2.y}
+                        });
+                    }
+                });
+
+                if(data.supports) {
+                    Object.keys(data.supports).forEach(nIdx => {
+                        const coord = nodeCoords[nIdx];
+                        const typeRaw = data.supports[nIdx];
+                        let type = 'fixed';
+                        if(typeRaw === 'pinned' || typeRaw === 'pin') type = 'pin';
+                        else if(typeRaw === 'slider' || typeRaw.includes('roller_x')) type = 'slider';
+                        else if(typeRaw.includes('roller')) type = 'roller';
+                        
+                        if(coord) {
+                            state.entities.push({
+                                id: Date.now() + idCounter++,
+                                type: type,
+                                p1: {x: coord.x, y: coord.y},
+                                angle: 0
+                            });
+                        }
+                    });
+                }
+
+                if(data.loads) {
+                    data.loads.forEach(ld => {
+                        const mag = String(ld.magnitude || 10);
+                        if (ld.type === 'point' && nodeCoords[ld.node]) {
+                            const pt = nodeCoords[ld.node];
+                            const rad = (ld.angle_deg !== undefined ? ld.angle_deg : -90) * Math.PI / 180;
+                            const dir = { x: Math.cos(rad), y: -Math.sin(rad) }; // sketch Y-up -> canvas Y-down
+                            const len = 40;
+                            state.entities.push({
+                                id: Date.now() + idCounter++,
+                                type: 'force',
+                                p1: { x: pt.x - dir.x * len, y: pt.y - dir.y * len },
+                                p2: { x: pt.x, y: pt.y },
+                                angle: Math.atan2(dir.y, dir.x),
+                                magnitude: mag
+                            });
+                        } else if (ld.type === 'moment' && nodeCoords[ld.node]) {
+                            const pt = nodeCoords[ld.node];
+                            state.entities.push({
+                                id: Date.now() + idCounter++,
+                                type: 'moment',
+                                p1: { x: pt.x, y: pt.y },
+                                angle: 0,
+                                magnitude: mag
+                            });
+                        } else if (ld.type === 'distributed' && nodeCoords[ld.start_node] && nodeCoords[ld.end_node]) {
+                            const a = nodeCoords[ld.start_node];
+                            const b = nodeCoords[ld.end_node];
+                            state.entities.push({
+                                id: Date.now() + idCounter++,
+                                type: 'distload',
+                                p1: { x: a.x, y: a.y },
+                                p2: { x: b.x, y: b.y },
+                                angle: 0,
+                                magnitude: mag
+                            });
+                        }
+                    });
+                }
+
+                state.selectedIds = [];
+                requestRedraw();
+            } catch(fetchErr) {
+                alert("Failed to analyze image with API: " + fetchErr.message);
+            } finally {
+                document.getElementById('ai-loading-overlay').classList.add('hidden');
+            }
+}
+
+document.getElementById('ai-import-input').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => analyzeSketchDataUrl(ev.target.result);
+    reader.readAsDataURL(file);
+    e.target.value = '';
+});
+
+// AI import chooser modal
+document.getElementById('btn-ai-import').addEventListener('click', () => {
+    document.getElementById('ai-import-modal').classList.remove('hidden');
+});
+document.getElementById('btn-close-ai-import').addEventListener('click', () => {
+    document.getElementById('ai-import-modal').classList.add('hidden');
+});
+document.getElementById('btn-ai-own-file').addEventListener('click', () => {
+    document.getElementById('ai-import-modal').classList.add('hidden');
+    document.getElementById('ai-import-input').click();
+});
+document.querySelectorAll('.ai-example-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        document.getElementById('ai-import-modal').classList.add('hidden');
+        try {
+            const resp = await fetch(btn.dataset.src);
+            if (!resp.ok) throw new Error("Example image not found (" + btn.dataset.src + ").");
+            const blob = await resp.blob();
+            const dataUrl = await new Promise((res, rej) => {
+                const r = new FileReader();
+                r.onload = () => res(r.result);
+                r.onerror = () => rej(new Error("Could not read example image."));
+                r.readAsDataURL(blob);
+            });
+            analyzeSketchDataUrl(dataUrl);
+        } catch (err) {
+            alert(err.message);
+        }
+    });
+});
+
 
 document.getElementById('setting-snap-master').addEventListener('change', (e) => {
     renderSettings.master = e.target.checked;
@@ -1290,7 +1819,7 @@ document.getElementById('cad-input').addEventListener('keydown', (e) => {
             }
 
             if (val > 0) {
-                if (state.drawingStep === 1 && state.tempEntity && ['beam', 'distload', 'dimension'].includes(state.tempEntity.type)) {
+                if (state.drawingStep === 1 && state.tempEntity && ['beam', 'distload', 'dimension', 'arrayload'].includes(state.tempEntity.type)) {
                 const angle = Math.atan2(state.tempEntity.p2.y - state.tempEntity.p1.y, state.tempEntity.p2.x - state.tempEntity.p1.x);
                 const realLen = val * state.gridSize;
                 state.tempEntity.p2 = {
@@ -1303,8 +1832,37 @@ document.getElementById('cad-input').addEventListener('keydown', (e) => {
                     state.drawingStep = 2;
                     state.tempEntity.p3 = { ...state.tempEntity.p2 };
                 } else {
-                    state.entities.push({...state.tempEntity});
-                    state.selectedEntityId = state.tempEntity.id;
+                    if (state.tool === 'arrayload') {
+                        const pt1 = state.tempEntity.p1;
+                        const pt2 = state.tempEntity.p2;
+                        const count = state.arrayLoadCount || 5;
+                        const dx = (pt2.x - pt1.x);
+                        const dy = (pt2.y - pt1.y);
+                        const groupId = 'group_' + generateId();
+                        state.selectedIds = [];
+                        
+                        for (let i = 0; i < count; i++) {
+                            const px = pt1.x + dx * i;
+                            const py = pt1.y + dy * i;
+                            const visualLen = 40 / state.vw.z;
+                            const newForce = {
+                                id: generateId(),
+                                type: 'force',
+                                p2: { x: px, y: py },
+                                p1: { x: px, y: py - visualLen },
+                                angle: Math.PI / 2,
+                                magnitude: '10',
+                                groupId: groupId
+                            };
+                            state.entities.push(newForce);
+                            state.selectedIds.push(newForce.id);
+                        }
+                        state.selectedEntityId = state.selectedIds[state.selectedIds.length - 1];
+                    } else {
+                        state.entities.push({...state.tempEntity});
+                        state.selectedIds = [state.tempEntity.id];
+                        state.selectedEntityId = state.tempEntity.id;
+                    }
                     state.drawingStep = 0;
                     state.tempEntity = null;
                     document.getElementById('cad-input-panel').classList.add('hidden');
@@ -1313,45 +1871,40 @@ document.getElementById('cad-input').addEventListener('keydown', (e) => {
                     updatePropertyPanel();
                 }
                 requestRedraw();
-            } else if (state.drawingStep === 2 && state.tempEntity && ['arc', 'parabola'].includes(state.tempEntity.type)) {
-                let R = val * state.gridSize; // requested radius in pixels
-                const pt1 = state.tempEntity.p1;
-                const pt2 = state.tempEntity.p2;
-                const dx = pt2.x - pt1.x;
-                const dy = pt2.y - pt1.y;
-                const L = Math.hypot(dx, dy);
-
-                // Cannot form an arc if diameter is less than segment. Clamp it.
-                if (R < L / 2) {
-                    R = L / 2 + 0.1;
+            } else if (state.drawingStep === 3 && state.tool === 'chaindim' && state.tempEntity) {
+                const angle = Math.atan2(state.tempEntity.p2.y - state.tempEntity.p1.y, state.tempEntity.p2.x - state.tempEntity.p1.x);
+                const realLen = val * state.gridSize;
+                state.tempEntity.p2 = {
+                    x: state.tempEntity.p1.x + realLen * Math.cos(angle),
+                    y: state.tempEntity.p1.y + realLen * Math.sin(angle)
+                };
+                
+                const dx = state.tempEntity.p2.x - state.tempEntity.p1.x;
+                const dy = state.tempEntity.p2.y - state.tempEntity.p1.y;
+                const len = Math.hypot(dx, dy);
+                if (len > 0) {
+                    const nx = -dy / len;
+                    const ny = dx / len;
+                    state.tempEntity.p3 = {
+                        x: state.tempEntity.p1.x + state.chainDimOffset * nx,
+                        y: state.tempEntity.p1.y + state.chainDimOffset * ny
+                    };
                 }
                 
-                const nx = -dy / L;
-                const ny = dx / L;
-                const mx = (pt1.x + pt2.x) / 2;
-                const my = (pt1.y + pt2.y) / 2;
-
-                const d = Math.sqrt(R * R - (L / 2) * (L / 2));
-                
-                const p3h = (state.tempEntity.p3.x - mx)*nx + (state.tempEntity.p3.y - my)*ny;
-                const side = p3h >= 0 ? 1 : -1;
-
-                const h_val = R - d; 
-                
-                state.tempEntity.p3 = {
-                    x: mx + nx * h_val * side,
-                    y: my + ny * h_val * side
-                };
-
                 state.entities.push({...state.tempEntity});
-                state.selectedEntityId = state.tempEntity.id;
-                state.drawingStep = 0;
-                state.tempEntity = null;
-                document.getElementById('cad-input-panel').classList.add('hidden');
                 
-                document.querySelector('.tool-btn[data-tool="select"]').click();
-                updatePropertyPanel();
+                state.tempEntity = {
+                    id: generateId(),
+                    type: 'dimension',
+                    p1: {...state.tempEntity.p2},
+                    p2: snap(state.cursorPt),
+                    groupId: state.chainDimGroupId
+                };
+                
+                document.getElementById('cad-input').value = '';
+                document.getElementById('cad-input-panel').classList.add('hidden');
                 requestRedraw();
+                return;
             }
         }
     }
@@ -1393,8 +1946,6 @@ let styleSettings = {
     bgColor: '#f8fafc',
     opacity: 1.0,
     beam: { color: '#27272a', alpha: 1.0, rgba: 'rgba(39, 39, 42, 1.0)', weight: 4 },
-    arc: { color: '#27272a', alpha: 1.0, rgba: 'rgba(39, 39, 42, 1.0)', weight: 4 },
-    parabola: { color: '#27272a', alpha: 1.0, rgba: 'rgba(39, 39, 42, 1.0)', weight: 4 },
     pin: { color: '#27272a', alpha: 1.0, rgba: 'rgba(39, 39, 42, 1.0)', weight: 2 },
     roller: { color: '#27272a', alpha: 1.0, rgba: 'rgba(39, 39, 42, 1.0)', weight: 2 },
     fixed: { color: '#27272a', alpha: 1.0, rgba: 'rgba(39, 39, 42, 1.0)', weight: 2 },
@@ -1425,19 +1976,19 @@ const buildStyleUI = () => {
         if (label === 'Distload') label = 'Dist Load';
         if (label === 'Rotspr') label = 'Rot Spr';
         
-        let textInput = '<div class="col-span-2 text-slate-400 text-xs italic text-left pl-1">N/A</div>';
+        let textInput = '<div class="col-span-2 text-slate-300 text-xs italic text-left pl-1">N/A</div>';
         if (s.text !== undefined) {
              textInput = `<div class="col-span-2 flex items-center gap-1 pl-1">
-                                <input type="number" id="style-${key}-text" value="${s.text}" min="8" max="36" class="w-12 border border-slate-300 rounded px-1 py-1 text-sm text-center"> px
+                                <input type="number" id="style-${key}-text" value="${s.text}" min="8" max="36" class="w-12 border border-slate-600 bg-slate-700 text-white rounded px-1 py-1 text-sm text-center"> px
                             </div>`;
         }
 
         html += `
             <div class="grid grid-cols-6 gap-2 items-center text-center">
-                <div class="text-sm font-medium text-slate-700 text-left capitalize overflow-hidden whitespace-nowrap" title="${label}">${label}</div>
+                <div class="text-sm font-medium text-white text-left capitalize overflow-hidden whitespace-nowrap" title="${label}">${label}</div>
                 <div class="flex justify-center"><input type="color" id="style-${key}-color" value="${s.color}" class="w-7 h-7 p-0 border-0 rounded cursor-pointer"></div>
-                <div><input type="number" id="style-${key}-alpha" value="${s.alpha}" min="0" max="1" step="0.1" class="w-full border border-slate-300 rounded px-1 py-1 text-sm text-center"></div>
-                <div><input type="number" id="style-${key}-weight" value="${s.weight}" min="1" max="10" class="w-full border border-slate-300 rounded px-1 py-1 text-sm text-center"></div>
+                <div><input type="number" id="style-${key}-alpha" value="${s.alpha}" min="0" max="1" step="0.1" class="w-full border border-slate-600 bg-slate-700 text-white rounded px-1 py-1 text-sm text-center"></div>
+                <div><input type="number" id="style-${key}-weight" value="${s.weight}" min="1" max="10" class="w-full border border-slate-600 bg-slate-700 text-white rounded px-1 py-1 text-sm text-center"></div>
                 ${textInput}
             </div>
         `;
@@ -1603,7 +2154,7 @@ const snap = (pt) => {
         }
     }
 
-    // 2. Try Elements (Beams, Arcs, Parabolas)
+    // 2. Try Elements (Beams)
     if (renderSettings.elements) {
         let nearestEl = null;
         let minDistEl = Infinity;
@@ -1620,55 +2171,6 @@ const snap = (pt) => {
         for (const ent of state.entities) {
             if (ent.type === 'beam') {
                 checkLineSegment(ent.p1, ent.p2);
-            } else if (ent.type === 'parabola' && ent.p3) {
-                const steps = 15;
-                let lastPt = ent.p1;
-                for (let i = 1; i <= steps; i++) {
-                    const t = i / steps;
-                    const u = 1 - t;
-                    const x = u*u*ent.p1.x + 2*u*t*ent.p3.x + t*t*ent.p2.x;
-                    const y = u*u*ent.p1.y + 2*u*t*ent.p3.y + t*t*ent.p2.y;
-                    const ptSegment = { x, y };
-                    checkLineSegment(lastPt, ptSegment);
-                    lastPt = ptSegment;
-                }
-            } else if (ent.type === 'arc' && ent.p3) {
-                const dx = ent.p2.x - ent.p1.x;
-                const dy = ent.p2.y - ent.p1.y;
-                const L = Math.hypot(dx, dy);
-                if (L > 1e-3) {
-                    const nx = -dy / L, ny = dx / L;
-                    const mx = (ent.p1.x + ent.p2.x) / 2;
-                    const my = (ent.p1.y + ent.p2.y) / 2;
-                    const h = (ent.p3.x - mx) * nx + (ent.p3.y - my) * ny;
-                    
-                    if (Math.abs(h) > 1e-3) {
-                        const R = (L * L) / (8 * h) + h / 2;
-                        const cx = mx - (R - h) * nx;
-                        const cy = my - (R - h) * ny;
-                        let startAngle = Math.atan2(ent.p1.y - cy, ent.p1.x - cx);
-                        let endAngle = Math.atan2(ent.p2.y - cy, ent.p2.x - cx);
-                        
-                        const isCCW = h < 0;
-                        if (isCCW) {
-                            while (endAngle > startAngle) endAngle -= Math.PI * 2;
-                        } else {
-                            while (endAngle < startAngle) endAngle += Math.PI * 2;
-                        }
-                        
-                        const steps = 15;
-                        let lastPt = ent.p1;
-                        for (let i = 1; i <= steps; i++) {
-                            const ang = startAngle + (endAngle - startAngle) * (i / steps);
-                            const ptSegment = { x: cx + Math.abs(R) * Math.cos(ang), y: cy + Math.abs(R) * Math.sin(ang) };
-                            if (i === steps) { ptSegment.x = ent.p2.x; ptSegment.y = ent.p2.y; }
-                            checkLineSegment(lastPt, ptSegment);
-                            lastPt = ptSegment;
-                        }
-                    } else {
-                        checkLineSegment(ent.p1, ent.p2);
-                    }
-                }
             }
         }
         if (nearestEl) return nearestEl;
@@ -1699,7 +2201,8 @@ function drawHatching(ctx, xc, yc, width) {
 function drawTextMagnitude(ctx, text, color, x, y, options = {}) {
     if (!text || text === '0') return;
     ctx.save();
-    ctx.setTransform(state.vw.z, 0, 0, state.vw.z, state.vw.x, state.vw.y);
+    
+    
     const size = options.size || 12;
     const font = options.font || 'sans-serif';
     const boldStr = options.bold === false ? '' : (options.bold || true ? 'bold ' : 'bold '); // default bold backwards compatible? Actually let's make it respect what is passed. But existing caller assumes bold by default. Let's say if options.bold is provided, use it, else bold.
@@ -1707,17 +2210,55 @@ function drawTextMagnitude(ctx, text, color, x, y, options = {}) {
     ctx.font = `${fontWeight}${size}px ${font}`;
     ctx.fillStyle = color;
     ctx.fillText(`${text}`, x + 8, y - 8);
+    const tw = ctx.measureText(`${text}`).width;
     ctx.restore();
+    // World-space bounds of the drawn text, used for label drag hit-testing
+    return { x: x + 6, y: y - 8 - size, w: tw + 4, h: size + 6 };
 }
 
 // Entity rendering and logic functions
 const EntityLogic = {
+    arrayload: {
+        draw: (ctx, ent, isSelected, isPreview) => {
+            const count = state.arrayLoadCount || 5;
+            const dx = (ent.p2.x - ent.p1.x);
+            const dy = (ent.p2.y - ent.p1.y);
+            
+            for (let i = 0; i < count; i++) {
+                const px = ent.p1.x + dx * i;
+                const py = ent.p1.y + dy * i;
+                
+                ctx.save();
+                const headlen = 15 * (state.symbolScale || 1.0);
+                const angle = Math.PI / 2;
+                const length = 40 * (state.symbolScale || 1.0);
+                
+                ctx.beginPath();
+                ctx.moveTo(px, py - length);
+                ctx.lineTo(px, py);
+                ctx.lineTo(px - headlen * Math.cos(angle - Math.PI / 6), py - headlen * Math.sin(angle - Math.PI / 6));
+                ctx.moveTo(px, py);
+                ctx.lineTo(px - headlen * Math.cos(angle + Math.PI / 6), py - headlen * Math.sin(angle + Math.PI / 6));
+                
+                ctx.lineJoin = 'round';
+                ctx.lineCap = 'round';
+                ctx.setLineDash([5, 5]);
+                ctx.strokeStyle = '#fca5a5';
+                ctx.lineWidth = styleSettings['force'].weight;
+                ctx.stroke();
+                ctx.restore();
+            }
+        },
+        hitTest: () => false,
+        move: () => {}
+    },
     coordsys: {
         draw: (ctx, ent, isSelected, isPreview) => {
             ctx.save();
             const pt = ent.p1;
-            const size = 50 * (state.symbolScale || 1.0); // Size of the axes
-            const headlen = 10 * (state.symbolScale || 1.0);
+            const csScale = (ent.csScale || 1.0) * (state.symbolScale || 1.0);
+            const size = 50 * csScale; // Size of the axes
+            const headlen = 10 * csScale;
             
             ctx.translate(pt.x, pt.y);
             if (ent.angle) {
@@ -1735,49 +2276,53 @@ const EntityLogic = {
             const signX = ent.flipX ? -1 : 1;
             const signY = ent.flipY ? -1 : 1;
 
-            ctx.beginPath();
-            // Y-axis (pointing up in visual terms when un-flipped)
+            // Y-axis (pointing up in visual terms when un-flipped) and X-axis, as one path through the origin
             const endY = pt.y - (size * signY);
-            ctx.moveTo(pt.x, pt.y);
-            ctx.lineTo(pt.x, endY);
-            // Y Arrow head
-            ctx.lineTo(pt.x - headlen * Math.cos(Math.PI / 3), endY + signY * headlen * Math.sin(Math.PI / 3));
-            ctx.moveTo(pt.x, endY);
-            ctx.lineTo(pt.x + headlen * Math.cos(Math.PI / 3), endY + signY * headlen * Math.sin(Math.PI / 3));
-
-            // X-axis
             const endX = pt.x + (size * signX);
-            ctx.moveTo(pt.x, pt.y);
+            ctx.beginPath();
+            ctx.moveTo(pt.x, endY);
+            ctx.lineTo(pt.x, pt.y);
             ctx.lineTo(endX, pt.y);
+            ctx.stroke();
+
+            // Arrow heads as symmetric strokes (wing -> tip -> wing) with round joins, so thick axes
+            // don't get a lopsided miter spike at the tips
+            ctx.setLineDash([]);
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            // Y Arrow head
+            ctx.moveTo(pt.x - headlen * Math.cos(Math.PI / 3), endY + signY * headlen * Math.sin(Math.PI / 3));
+            ctx.lineTo(pt.x, endY);
+            ctx.lineTo(pt.x + headlen * Math.cos(Math.PI / 3), endY + signY * headlen * Math.sin(Math.PI / 3));
             // X Arrow head
-            ctx.lineTo(endX - signX * headlen * Math.cos(Math.PI / 6), pt.y - headlen * Math.sin(Math.PI / 6));
-            ctx.moveTo(endX, pt.y);
+            ctx.moveTo(endX - signX * headlen * Math.cos(Math.PI / 6), pt.y - headlen * Math.sin(Math.PI / 6));
+            ctx.lineTo(endX, pt.y);
             ctx.lineTo(endX - signX * headlen * Math.cos(Math.PI / 6), pt.y + headlen * Math.sin(Math.PI / 6));
-            
             ctx.stroke();
 
             // Text
             const xText = ent.xLabel || 'x';
             const yText = ent.yLabel || 'y';
-            const textSize = ent.textSize || styleSettings[ent.type].text;
+            const textSize = (ent.textSize || styleSettings[ent.type].text) * (ent.csScale || 1.0);
             ctx.font = `italic ${textSize}px sans-serif`;
             ctx.fillStyle = ctx.strokeStyle;
             
             // Draw x text
             ctx.textAlign = signX > 0 ? 'left' : 'right';
             ctx.textBaseline = 'middle';
-            ctx.fillText(xText, endX + (signX * 5), pt.y);
+            ctx.fillText(xText, endX + (signX * 5 * (ent.csScale || 1.0)), pt.y);
             
             // Draw y text
             ctx.textAlign = 'center';
             ctx.textBaseline = signY > 0 ? 'bottom' : 'top';
-            ctx.fillText(yText, pt.x, endY - (signY * 5));
+            ctx.fillText(yText, pt.x, endY - (signY * 5 * (ent.csScale || 1.0)));
 
             ctx.restore();
         },
         hitTest: (pt, ent) => {
             const d = dist(pt, ent.p1);
-            return d < 40 / state.vw.z;
+            return d < Math.max(40 / state.vw.z, 50 * (ent.csScale || 1.0) * (state.symbolScale || 1.0) * 0.8);
         },
         move: (ent, dx, dy) => { ent.p1.x += dx; ent.p1.y += dy; }
     },
@@ -1786,13 +2331,6 @@ const EntityLogic = {
             ctx.save();
             const headlen = 15 * (ent.arrowScale || 1.0) * (state.symbolScale || 1.0);
             const angle = Math.atan2(ent.p2.y - ent.p1.y, ent.p2.x - ent.p1.x);
-            
-            ctx.beginPath();
-            ctx.moveTo(ent.p1.x, ent.p1.y);
-            ctx.lineTo(ent.p2.x, ent.p2.y);
-            ctx.lineTo(ent.p2.x - headlen * Math.cos(angle - Math.PI / 6), ent.p2.y - headlen * Math.sin(angle - Math.PI / 6));
-            ctx.moveTo(ent.p2.x, ent.p2.y);
-            ctx.lineTo(ent.p2.x - headlen * Math.cos(angle + Math.PI / 6), ent.p2.y - headlen * Math.sin(angle + Math.PI / 6));
             
             ctx.strokeStyle = isSelected ? '#3b82f6' : (ent.color || '#000000');
             ctx.lineWidth = isSelected ? (ent.weight || 2) + 1 : (ent.weight || 2);
@@ -1805,7 +2343,46 @@ const EntityLogic = {
                 ctx.setLineDash([4, 4]);
             }
 
+            const cosA = Math.cos(angle), sinA = Math.sin(angle);
+
+            // Shaft - with filled heads it stops at each head's base so a thick shaft can't poke out beside the tip
+            const shaftLen = Math.hypot(ent.p2.x - ent.p1.x, ent.p2.y - ent.p1.y);
+            const nHeads = ent.doubleHead ? 2 : 1;
+            const cut = ent.filledHead ? Math.min(headlen * Math.cos(Math.PI / 6), shaftLen / nHeads) : 0;
+            const cutStart = ent.doubleHead ? cut : 0;
+            ctx.beginPath();
+            ctx.moveTo(ent.p1.x + cutStart * cosA, ent.p1.y + cutStart * sinA);
+            ctx.lineTo(ent.p2.x - cut * cosA, ent.p2.y - cut * sinA);
             ctx.stroke();
+
+            // Draws one head with its tip at `tip`, pointing in direction `dir`
+            const drawHead = (tip, dir) => {
+                const wing1 = { x: tip.x - headlen * Math.cos(dir - Math.PI / 6), y: tip.y - headlen * Math.sin(dir - Math.PI / 6) };
+                const wing2 = { x: tip.x - headlen * Math.cos(dir + Math.PI / 6), y: tip.y - headlen * Math.sin(dir + Math.PI / 6) };
+                ctx.beginPath();
+                if (ent.filledHead) {
+                    // Filled triangle head
+                    ctx.moveTo(tip.x, tip.y);
+                    ctx.lineTo(wing1.x, wing1.y);
+                    ctx.lineTo(wing2.x, wing2.y);
+                    ctx.closePath();
+                    ctx.fill();
+                } else {
+                    // Head as one symmetric stroke (wing -> tip -> wing) with round joins, so thick arrows
+                    // don't get a lopsided miter spike at the tip
+                    ctx.moveTo(wing1.x, wing1.y);
+                    ctx.lineTo(tip.x, tip.y);
+                    ctx.lineTo(wing2.x, wing2.y);
+                    ctx.stroke();
+                }
+            };
+
+            ctx.setLineDash([]);
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.fillStyle = ctx.strokeStyle;
+            drawHead(ent.p2, angle);
+            if (ent.doubleHead) drawHead(ent.p1, angle + Math.PI);
             ctx.restore();
         },
         hitTest: (pt, ent) => distToLine(pt, ent.p1, ent.p2) < 8 / state.vw.z,
@@ -1854,10 +2431,14 @@ const EntityLogic = {
                 ctx.setLineDash([8, 6]);
                 ctx.strokeStyle = '#94a3b8'; // Lighter dash for preview
             }
+            // Without end dots, round caps keep joints between beams (e.g. frame corners) closed
+            if (ent.hideEndDots) ctx.lineCap = 'round';
             ctx.stroke();
-            
-            ctx.beginPath(); ctx.arc(ent.p1.x, ent.p1.y, 3, 0, Math.PI*2); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
-            ctx.beginPath(); ctx.arc(ent.p2.x, ent.p2.y, 3, 0, Math.PI*2); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
+
+            if (!ent.hideEndDots) {
+                ctx.beginPath(); ctx.arc(ent.p1.x, ent.p1.y, 3, 0, Math.PI*2); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
+                ctx.beginPath(); ctx.arc(ent.p2.x, ent.p2.y, 3, 0, Math.PI*2); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
+            }
             ctx.restore();
 
             if (isPreview && (ent.p1.x !== ent.p2.x || ent.p1.y !== ent.p2.y)) {
@@ -1885,362 +2466,6 @@ const EntityLogic = {
         },
         hitTest: (pt, ent) => distToLine(pt, ent.p1, ent.p2) < 8 / state.vw.z,
         move: (ent, dx, dy) => { ent.p1.x += dx; ent.p1.y += dy; ent.p2.x += dx; ent.p2.y += dy; }
-    },
-    arc: {
-        draw: (ctx, ent, isSelected, isPreview) => {
-            ctx.save();
-            ctx.beginPath();
-            
-            ctx.strokeStyle = isSelected ? '#3b82f6' : styleSettings[ent.type].rgba;
-            ctx.lineWidth = isSelected ? styleSettings[ent.type].weight + 1 : styleSettings[ent.type].weight;
-            if (isPreview) {
-                ctx.setLineDash([8, 6]);
-                ctx.strokeStyle = '#94a3b8';
-            }
-
-            if (!ent.p3) {
-                ctx.moveTo(ent.p1.x, ent.p1.y);
-                ctx.lineTo(ent.p2.x, ent.p2.y);
-                ctx.stroke();
-            } else {
-                const dx = ent.p2.x - ent.p1.x;
-                const dy = ent.p2.y - ent.p1.y;
-                const L = Math.hypot(dx, dy);
-                
-                if (L < 1e-3) {
-                    ctx.moveTo(ent.p1.x, ent.p1.y);
-                    ctx.lineTo(ent.p2.x, ent.p2.y);
-                    ctx.stroke();
-                } else {
-                    const nx = -dy / L, ny = dx / L;
-                    const mx = (ent.p1.x + ent.p2.x) / 2;
-                    const my = (ent.p1.y + ent.p2.y) / 2;
-                    
-                    const h = (ent.p3.x - mx) * nx + (ent.p3.y - my) * ny;
-                    if (Math.abs(h) < 1e-3) {
-                        ctx.moveTo(ent.p1.x, ent.p1.y);
-                        ctx.lineTo(ent.p2.x, ent.p2.y);
-                        ctx.stroke();
-                    } else {
-                        const R = (L * L) / (8 * h) + h / 2;
-                        const cx = mx - (R - h) * nx;
-                        const cy = my - (R - h) * ny;
-                        const startAngle = Math.atan2(ent.p1.y - cy, ent.p1.x - cx);
-                        const endAngle = Math.atan2(ent.p2.y - cy, ent.p2.x - cx);
-                        
-                        ctx.arc(cx, cy, Math.abs(R), startAngle, endAngle, h < 0);
-                        ctx.stroke();
-
-                        // Draw radius preview
-                        if (isSelected || (isPreview && state.drawingStep === 2)) {
-                            ctx.setLineDash([4, 4]);
-                            ctx.lineWidth = 1;
-                            ctx.strokeStyle = '#94a3b8';
-                            ctx.beginPath();
-                            ctx.moveTo(cx, cy);
-                            ctx.lineTo(ent.p3.x, ent.p3.y);
-                            ctx.stroke();
-                            
-                            const rUnits = (Math.abs(R) / state.gridSize).toFixed(2) + 'm';
-                            ctx.font = `${styleSettings[ent.type].text}px sans-serif`;
-                            ctx.fillStyle = ctx.strokeStyle;
-                            ctx.textAlign = 'center';
-                            
-                            // Center on the radius line
-                            const txtX = cx + (ent.p3.x - cx)/2;
-                            const txtY = cy + (ent.p3.y - cy)/2;
-                            
-                            let textAngle = Math.atan2(ent.p3.y - cy, ent.p3.x - cx);
-                            if (Math.abs(textAngle) > Math.PI/2) textAngle += Math.PI;
-                            
-                            ctx.save();
-                            ctx.translate(txtX, txtY);
-                            ctx.rotate(textAngle);
-                            ctx.fillText('R=' + rUnits, 0, -5);
-                            ctx.restore();
-                        }
-                    }
-                }
-            }
-            ctx.setLineDash([]);
-            ctx.beginPath(); ctx.arc(ent.p1.x, ent.p1.y, 3, 0, Math.PI*2); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
-            ctx.beginPath(); ctx.arc(ent.p2.x, ent.p2.y, 3, 0, Math.PI*2); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
-
-            // Draw Perpendicular Load
-            if (ent.perpLoad && parseFloat(ent.perpLoad) !== 0 && (!isPreview || state.drawingStep === 0)) {
-                const loadHeight = 25;
-                const loadDir = parseFloat(ent.perpLoad) > 0 ? 1 : -1; // positive = points to curve
-                ctx.strokeStyle = styleSettings[ent.type].rgba;
-                ctx.lineWidth = styleSettings[ent.type].weight;
-                
-                const dx = ent.p2.x - ent.p1.x;
-                const dy = ent.p2.y - ent.p1.y;
-                const L = Math.hypot(dx, dy);
-                
-                if (L > 1e-3 && ent.p3) {
-                    const nx = -dy / L, ny = dx / L;
-                    const mx = (ent.p1.x + ent.p2.x) / 2;
-                    const my = (ent.p1.y + ent.p2.y) / 2;
-                    const h = (ent.p3.x - mx) * nx + (ent.p3.y - my) * ny;
-                    
-                    if (Math.abs(h) > 1e-3) {
-                        const R = (L * L) / (8 * h) + h / 2;
-                        const cx = mx - (R - h) * nx;
-                        const cy = my - (R - h) * ny;
-                        
-                        let startAngle = Math.atan2(ent.p1.y - cy, ent.p1.x - cx);
-                        let endAngle = Math.atan2(ent.p2.y - cy, ent.p2.x - cx);
-                        
-                        // Ensure correct angular distance based on arc render (h < 0)
-                        let dAngle = endAngle - startAngle;
-                        if (h < 0) {
-                            if (dAngle > 0) dAngle -= Math.PI * 2;
-                        } else {
-                            if (dAngle < 0) dAngle += Math.PI * 2;
-                        }
-
-                        const arcLen = Math.abs(R * dAngle);
-                        const steps = Math.max(3, Math.floor(arcLen / 20));
-                        
-                        // Draw connecting top curve
-                        ctx.beginPath();
-                        for (let i = 0; i <= steps; i++) {
-                            const ang = startAngle + (i / steps) * dAngle;
-                            // normal vector points OUTWARD from center
-                            const pnx = Math.cos(ang);
-                            const pny = Math.sin(ang);
-                            
-                            // The direction of the normal must be aligned with how the user perceives "outside".
-                            // Usually, positive load on an arch pushes it down (towards center if h > 0)
-                            // If h>0, center is below. So normal pointing out (pnx, pny) would be *up*.
-                            // We construct it systematically:
-                            const outDirX = pnx * Math.sign(h);
-                            const outDirY = pny * Math.sign(h);
-                            
-                            const px = cx + pnx * Math.abs(R);
-                            const py = cy + pny * Math.abs(R);
-                            const tx = px + outDirX * loadHeight * loadDir;
-                            const ty = py + outDirY * loadHeight * loadDir;
-                            if (i === 0) ctx.moveTo(tx, ty);
-                            else ctx.lineTo(tx, ty);
-                        }
-                        ctx.stroke();
-
-                        // Draw arrows
-                        for (let i = 0; i <= steps; i++) {
-                            const ang = startAngle + (i / steps) * dAngle;
-                            const pnx = Math.cos(ang);
-                            const pny = Math.sin(ang);
-                            const outDirX = pnx * Math.sign(h);
-                            const outDirY = pny * Math.sign(h);
-                            
-                            const px = cx + pnx * Math.abs(R);
-                            const py = cy + pny * Math.abs(R);
-                            const tx = px + outDirX * loadHeight * loadDir;
-                            const ty = py + outDirY * loadHeight * loadDir;
-                            
-                            ctx.beginPath();
-                            ctx.moveTo(tx, ty);
-                            ctx.lineTo(px, py);
-                            ctx.stroke();
-                            
-                            // Arrow head at px,py (if pointing towards curve) or tx,ty
-                            const arrowBaseX = loadDir > 0 ? px : tx;
-                            const arrowBaseY = loadDir > 0 ? py : ty;
-                            // the vector of the arrow shaft
-                            const vx = loadDir > 0 ? -outDirX : outDirX;
-                            const vy = loadDir > 0 ? -outDirY : outDirY;
-                            
-                            const al = 6;
-                            const aw = 3;
-                            ctx.beginPath();
-                            ctx.moveTo(arrowBaseX, arrowBaseY);
-                            ctx.lineTo(arrowBaseX - vx * al + vy * aw, arrowBaseY - vy * al - vx * aw);
-                            ctx.moveTo(arrowBaseX, arrowBaseY);
-                            ctx.lineTo(arrowBaseX - vx * al - vy * aw, arrowBaseY - vy * al + vx * aw);
-                            ctx.stroke();
-                        }
-
-                        // Text
-                        const textAng = startAngle + dAngle / 2;
-                        const pnx = Math.cos(textAng);
-                        const pny = Math.sin(textAng);
-                        const outDirX = pnx * Math.sign(h);
-                        const outDirY = pny * Math.sign(h);
-                        
-                        const midPx = cx + pnx * Math.abs(R);
-                        const midPy = cy + pny * Math.abs(R);
-                        const textOffset = loadHeight * loadDir + (loadDir > 0 ? 10 : -10);
-                        const textX = midPx + outDirX * textOffset;
-                        const textY = midPy + outDirY * textOffset;
-
-                        ctx.save();
-                        ctx.translate(textX, textY);
-                        let rotAng = textAng;
-                        if (Math.abs(rotAng) > Math.PI/2) rotAng += Math.PI;
-                        ctx.rotate(rotAng);
-                        ctx.font = `${styleSettings[ent.type].text}px sans-serif`;
-                        ctx.fillStyle = ctx.strokeStyle;
-                        ctx.textAlign = 'center';
-                        ctx.fillText(Math.abs(parseFloat(ent.perpLoad)) + ' kN/m', 0, 0);
-                        ctx.restore();
-                    }
-                }
-            }
-
-            ctx.restore();
-        },
-        hitTest: (pt, ent) => {
-            const dx = ent.p2.x - ent.p1.x;
-            const dy = ent.p2.y - ent.p1.y;
-            const L = Math.hypot(dx, dy);
-            if (L < 1e-3) return dist(pt, ent.p1) < 10 / state.vw.z;
-            if (!ent.p3) return distToLine(pt, ent.p1, ent.p2) < 10 / state.vw.z;
-            
-            const nx = -dy / L, ny = dx / L;
-            const mx = (ent.p1.x + ent.p2.x) / 2;
-            const my = (ent.p1.y + ent.p2.y) / 2;
-            const h = (ent.p3.x - mx) * nx + (ent.p3.y - my) * ny;
-            
-            if (Math.abs(h) < 1e-3) return distToLine(pt, ent.p1, ent.p2) < 10 / state.vw.z;
-            
-            const R = (L * L) / (8 * h) + h / 2;
-            const cx = mx - (R - h) * nx;
-            const cy = my - (R - h) * ny;
-            
-            if (Math.abs(dist(pt, {x: cx, y: cy}) - Math.abs(R)) > 10 / state.vw.z) return false;
-            
-            const norm = (a, ref) => { let d = a - ref; while(d <= 0) d += Math.PI*2; while(d > Math.PI*2) d -= Math.PI*2; return d; };
-            const nA = norm(Math.atan2(pt.y - cy, pt.x - cx), Math.atan2(ent.p1.y - cy, ent.p1.x - cx));
-            const nA2 = norm(Math.atan2(ent.p2.y - cy, ent.p2.x - cx), Math.atan2(ent.p1.y - cy, ent.p1.x - cx));
-            const nA3 = norm(Math.atan2(ent.p3.y - cy, ent.p3.x - cx), Math.atan2(ent.p1.y - cy, ent.p1.x - cx));
-            
-            if (nA3 < nA2) return nA <= nA2;
-            else return nA >= nA2;
-        },
-        move: (ent, dx, dy) => { ent.p1.x += dx; ent.p1.y += dy; ent.p2.x += dx; ent.p2.y += dy; if (ent.p3) { ent.p3.x += dx; ent.p3.y += dy; } }
-    },
-    parabola: {
-        draw: (ctx, ent, isSelected, isPreview) => {
-            ctx.save();
-            ctx.beginPath();
-            ctx.moveTo(ent.p1.x, ent.p1.y);
-            if (ent.p3) {
-                ctx.quadraticCurveTo(ent.p3.x, ent.p3.y, ent.p2.x, ent.p2.y); 
-            } else {
-                ctx.lineTo(ent.p2.x, ent.p2.y);
-            }
-            ctx.strokeStyle = isSelected ? '#3b82f6' : styleSettings[ent.type].rgba;
-            ctx.lineWidth = isSelected ? styleSettings[ent.type].weight + 1 : styleSettings[ent.type].weight;
-            if (isPreview) {
-                ctx.setLineDash([8, 6]);
-                ctx.strokeStyle = '#94a3b8';
-            }
-            ctx.stroke();
-            ctx.beginPath(); ctx.arc(ent.p1.x, ent.p1.y, 3, 0, Math.PI*2); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
-            ctx.beginPath(); ctx.arc(ent.p2.x, ent.p2.y, 3, 0, Math.PI*2); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
-            
-            // Draw Perpendicular Load for Parabola
-            if (ent.perpLoad && parseFloat(ent.perpLoad) !== 0 && ent.p3 && (!isPreview || state.drawingStep === 0)) {
-                const loadHeight = 25;
-                const loadDir = parseFloat(ent.perpLoad) > 0 ? 1 : -1;
-                ctx.strokeStyle = styleSettings[ent.type].rgba;
-                ctx.lineWidth = styleSettings[ent.type].weight * 0.5 || 1;
-                ctx.setLineDash([]);
-                
-                const steps = 15;
-                
-                // Get points and normals
-                const pts = [];
-                for (let i = 0; i <= steps; i++) {
-                    const t = i / steps;
-                    const u = 1 - t;
-                    const x = u*u*ent.p1.x + 2*u*t*ent.p3.x + t*t*ent.p2.x;
-                    const y = u*u*ent.p1.y + 2*u*t*ent.p3.y + t*t*ent.p2.y;
-                    
-                    // Derivative to find normal
-                    const dx = 2*u*(ent.p3.x - ent.p1.x) + 2*t*(ent.p2.x - ent.p3.x);
-                    const dy = 2*u*(ent.p3.y - ent.p1.y) + 2*t*(ent.p2.y - ent.p3.y);
-                    const len = Math.hypot(dx, dy);
-                    const nx = dy / len;  // normal x
-                    const ny = -dx / len; // normal y (pointing "up" inside vertex if drawn normally)
-                    
-                    pts.push({ x, y, nx, ny });
-                }
-
-                // Top load curve
-                ctx.beginPath();
-                for (let i = 0; i <= steps; i++) {
-                    const p = pts[i];
-                    const tx = p.x + p.nx * loadHeight * loadDir;
-                    const ty = p.y + p.ny * loadHeight * loadDir;
-                    if (i === 0) ctx.moveTo(tx, ty);
-                    else ctx.lineTo(tx, ty);
-                }
-                ctx.stroke();
-
-                // Arrows
-                for (let i = 0; i <= steps; i++) {
-                    const p = pts[i];
-                    const tx = p.x + p.nx * loadHeight * loadDir;
-                    const ty = p.y + p.ny * loadHeight * loadDir;
-                    
-                    ctx.beginPath();
-                    ctx.moveTo(tx, ty);
-                    ctx.lineTo(p.x, p.y);
-                    ctx.stroke();
-                    
-                    const arrowBaseX = loadDir > 0 ? p.x : tx;
-                    const arrowBaseY = loadDir > 0 ? p.y : ty;
-                    
-                    // Shaft vector
-                    const vx = loadDir > 0 ? -p.nx : p.nx;
-                    const vy = loadDir > 0 ? -p.ny : p.ny;
-                    
-                    const al = 6;
-                    const aw = 3;
-                    ctx.beginPath();
-                    ctx.moveTo(arrowBaseX, arrowBaseY);
-                    ctx.lineTo(arrowBaseX - vx * al + vy * aw, arrowBaseY - vy * al - vx * aw);
-                    ctx.moveTo(arrowBaseX, arrowBaseY);
-                    ctx.lineTo(arrowBaseX - vx * al - vy * aw, arrowBaseY - vy * al + vx * aw);
-                    ctx.stroke();
-                }
-
-                // Text
-                const midIdx = Math.floor(steps / 2);
-                const mp = pts[midIdx];
-                const textOffset = loadHeight * loadDir + (loadDir > 0 ? 10 : -10);
-                const textX = mp.x + mp.nx * textOffset;
-                const textY = mp.y + mp.ny * textOffset;
-
-                ctx.save();
-                ctx.translate(textX, textY);
-                let rotAng = Math.atan2(mp.ny, mp.nx) + Math.PI/2;
-                if (Math.abs(rotAng) > Math.PI/2) rotAng += Math.PI;
-                ctx.rotate(rotAng);
-                ctx.font = `${styleSettings[ent.type].text}px sans-serif`;
-                ctx.fillStyle = ctx.strokeStyle;
-                ctx.textAlign = 'center';
-                ctx.fillText(Math.abs(parseFloat(ent.perpLoad)) + ' kN/m', 0, 0);
-                ctx.restore();
-            }
-
-            ctx.restore();
-        },
-        hitTest: (pt, ent) => {
-            if (!ent.p3) return distToLine(pt, ent.p1, ent.p2) < 10 / state.vw.z;
-            let minDist = Infinity;
-            for(let i=0; i<=10; i++) {
-                const t = i/10;
-                const u = 1-t;
-                const x = u*u*ent.p1.x + 2*u*t*ent.p3.x + t*t*ent.p2.x;
-                const y = u*u*ent.p1.y + 2*u*t*ent.p3.y + t*t*ent.p2.y;
-                minDist = Math.min(minDist, dist(pt, {x, y}));
-            }
-            return minDist < 15 / state.vw.z;
-        },
-        move: (ent, dx, dy) => { ent.p1.x += dx; ent.p1.y += dy; ent.p2.x += dx; ent.p2.y += dy; if (ent.p3) { ent.p3.x += dx; ent.p3.y += dy; } }
     },
     force: {
         draw: (ctx, ent, isSelected, isPreview) => {
@@ -2276,7 +2501,9 @@ const EntityLogic = {
                 } else if (unitStr !== '') {
                     textStr = `${textStr} ${unitStr}`;
                 }
-                drawTextMagnitude(ctx, textStr, isSelected ? '#3b82f6' : (ent.textColor || styleSettings[ent.type].rgba), ent.p1.x, ent.p1.y, {
+                const ox = ent.textOffset ? ent.textOffset.x : 0;
+                const oy = ent.textOffset ? ent.textOffset.y : 0;
+                ent._labelBounds = drawTextMagnitude(ctx, textStr, isSelected ? '#3b82f6' : (ent.textColor || styleSettings[ent.type].rgba), ent.p1.x + ox, ent.p1.y + oy, {
                     size: ent.textSize || styleSettings[ent.type].text,
                     font: ent.textFont || 'sans-serif',
                     bold: ent.textBold !== undefined ? ent.textBold : true
@@ -2306,8 +2533,14 @@ const EntityLogic = {
             const len = Math.hypot(dx, dy);
             
             if (len > 0) {
-                const nx = -dy / len;
-                const ny = dx / len;
+                let nx, ny;
+                if (ent.projectDownwards) {
+                    nx = 0;
+                    ny = 1;
+                } else {
+                    nx = -dy / len;
+                    ny = dx / len;
+                }
                 
                 let rawStart = ent.startMagnitude !== undefined ? ent.startMagnitude : (ent.magnitude || '10');
                 let rawEnd = ent.endMagnitude !== undefined ? ent.endMagnitude : (ent.magnitude || '10');
@@ -2370,14 +2603,27 @@ const EntityLogic = {
                     const midY = (ent.p1.y + ent.p2.y) / 2;
                     const midH = (hStart + hEnd) / 2;
                     
-                    ctx.translate(midX - nx * (midH + 8), midY - ny * (midH + 8));
-                    let angle = Math.atan2(dy, dx);
-                    if (Math.abs(angle) > Math.PI/2) angle += Math.PI;
+                    const ox = ent.textOffset ? ent.textOffset.x : 0;
+                    const oy = ent.textOffset ? ent.textOffset.y : 0;
+                    const tcx = midX - nx * (midH + 8) + ox;
+                    const tcy = midY - ny * (midH + 8) + oy;
+                    ctx.translate(tcx, tcy);
+                    let angle;
+                    if (ent.projectDownwards) {
+                        angle = 0;
+                    } else {
+                        angle = Math.atan2(dy, dx);
+                        if (Math.abs(angle) > Math.PI/2) angle += Math.PI;
+                    }
                     ctx.rotate(angle);
                     ctx.font = `${styleSettings[ent.type].text}px sans-serif`;
                     ctx.fillStyle = ctx.strokeStyle;
                     ctx.textAlign = 'center';
                     ctx.fillText(textStr, 0, 0);
+                    const tw = ctx.measureText(textStr).width;
+                    ent._labelBounds = { x: tcx - tw / 2 - 4, y: tcy - 14, w: tw + 8, h: 22 };
+                } else {
+                    ent._labelBounds = null;
                 }
             }
             ctx.restore();
@@ -2406,7 +2652,9 @@ const EntityLogic = {
             ctx.stroke();
             ctx.restore();
 
-            drawTextMagnitude(ctx, ent.magnitude, isSelected ? '#3b82f6' : styleSettings[ent.type].rgba, ent.p1.x + 25, ent.p1.y - 25, { size: styleSettings[ent.type].text });
+            const mox = ent.textOffset ? ent.textOffset.x : 0;
+            const moy = ent.textOffset ? ent.textOffset.y : 0;
+            ent._labelBounds = drawTextMagnitude(ctx, ent.magnitude, isSelected ? '#3b82f6' : styleSettings[ent.type].rgba, ent.p1.x + 25 + mox, ent.p1.y - 25 + moy, { size: styleSettings[ent.type].text });
         },
         hitTest: (pt, ent) => Math.abs(dist(pt, ent.p1) - 25) < 8 / state.vw.z,
         move: (ent, dx, dy) => { ent.p1.x += dx; ent.p1.y += dy; }
@@ -2635,16 +2883,22 @@ const EntityLogic = {
             ctx.stroke();
             
             // Arrows
-            const headlen = 10 * (state.symbolScale || 1.0);
+            // Head length grows with the line weight so thick dimensions don't swallow their arrows
+            const dimWeight = styleSettings[ent.type].weight || 1;
+            const headlen = 10 * (state.symbolScale || 1.0) * (1 + 0.4 * Math.max(0, dimWeight - 1));
             const hAngle = Math.PI / 8;
-            
+
+            // Heads as symmetric strokes (wing -> tip -> wing) with round joins, so thick lines
+            // don't get a lopsided miter spike at the tip
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+
             const t1Start = startA + Math.PI/2;
             ctx.beginPath();
             const px1 = ent.p1.x + radius*Math.cos(startA);
             const py1 = ent.p1.y + radius*Math.sin(startA);
-            ctx.moveTo(px1, py1);
-            ctx.lineTo(px1 + headlen * Math.cos(t1Start - hAngle), py1 + headlen * Math.sin(t1Start - hAngle));
-            ctx.moveTo(px1, py1);
+            ctx.moveTo(px1 + headlen * Math.cos(t1Start - hAngle), py1 + headlen * Math.sin(t1Start - hAngle));
+            ctx.lineTo(px1, py1);
             ctx.lineTo(px1 + headlen * Math.cos(t1Start + hAngle), py1 + headlen * Math.sin(t1Start + hAngle));
             ctx.stroke();
 
@@ -2652,9 +2906,8 @@ const EntityLogic = {
             ctx.beginPath();
             const px2 = ent.p1.x + radius*Math.cos(endA);
             const py2 = ent.p1.y + radius*Math.sin(endA);
-            ctx.moveTo(px2, py2);
-            ctx.lineTo(px2 + headlen * Math.cos(t2End - hAngle), py2 + headlen * Math.sin(t2End - hAngle));
-            ctx.moveTo(px2, py2);
+            ctx.moveTo(px2 + headlen * Math.cos(t2End - hAngle), py2 + headlen * Math.sin(t2End - hAngle));
+            ctx.lineTo(px2, py2);
             ctx.lineTo(px2 + headlen * Math.cos(t2End + hAngle), py2 + headlen * Math.sin(t2End + hAngle));
             ctx.stroke();
 
@@ -2664,8 +2917,10 @@ const EntityLogic = {
             if (ent.dimText && ent.dimText.trim() !== '') {
                 textStr = ent.dimText;
             } else {
-                const dec = ent.dimDecimals !== undefined ? ent.dimDecimals : 1;
-                textStr = angleDeg.toFixed(dec) + "°";
+                const dec = ent.dimDecimals !== undefined ? ent.dimDecimals : (ent.dimRadians ? 2 : 1);
+                const val = ent.dimRadians ? angleDiff : angleDeg;
+                const unitMark = ent.dimRadians ? " rad" : "°";
+                textStr = val.toFixed(dec) + (ent.dimUnits !== false ? unitMark : "");
             }
             
             ctx.font = `${styleSettings[ent.type].text}px sans-serif`;
@@ -2673,15 +2928,25 @@ const EntityLogic = {
             const th = 16;
             
             const midA = startA + (endA - startA) / 2;
-            const tmX = ent.p1.x + (radius + 20) * Math.cos(midA);
-            const tmY = ent.p1.y + (radius + 20) * Math.sin(midA);
-            
+            // textOffset lets the user drag the label away from its default spot (like load labels)
+            const tox = ent.textOffset ? ent.textOffset.x : 0;
+            const toy = ent.textOffset ? ent.textOffset.y : 0;
+            const tmX = ent.p1.x + (radius + 20) * Math.cos(midA) + tox;
+            const tmY = ent.p1.y + (radius + 20) * Math.sin(midA) + toy;
+
             ctx.save();
             ctx.translate(tmX, tmY);
-            
+
             let rotA = midA + Math.PI/2;
             if (rotA > Math.PI/2 && rotA < Math.PI*3/2) rotA -= Math.PI;
             ctx.rotate(rotA);
+
+            // Axis-aligned bounds of the rotated label box, used to grab and drag the label
+            if (!isPreview) {
+                const bw = Math.abs(textWidth * Math.cos(rotA)) + Math.abs(th * Math.sin(rotA));
+                const bh = Math.abs(textWidth * Math.sin(rotA)) + Math.abs(th * Math.cos(rotA));
+                ent._labelBounds = { x: tmX - bw / 2, y: tmY - bh / 2, w: bw, h: bh };
+            }
             
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -2961,15 +3226,27 @@ function requestRedraw() {
     }
 }
 
+let lastBgStr = '';
+
 function updateGridBackground() {
-    wrapper.style.backgroundColor = styleSettings.bgColor;
+    // Only update expensive string assignments if they actually change
+    const newBgColor = styleSettings.bgColor;
+    if (wrapper.style.backgroundColor !== newBgColor) {
+        wrapper.style.backgroundColor = newBgColor;
+    }
+
     if (styleSettings.showGrid) {
-        wrapper.style.backgroundImage = 'linear-gradient(to right, rgba(203, 213, 225, 0.4) 1px, transparent 1px), linear-gradient(to bottom, rgba(203, 213, 225, 0.4) 1px, transparent 1px)';
+        const bgImg = 'linear-gradient(to right, rgba(203, 213, 225, 0.4) 1px, transparent 1px), linear-gradient(to bottom, rgba(203, 213, 225, 0.4) 1px, transparent 1px)';
+        if (wrapper.style.backgroundImage !== bgImg) {
+            wrapper.style.backgroundImage = bgImg;
+        }
         const bgSize = state.gridSize * state.vw.z;
         wrapper.style.backgroundSize = `${bgSize}px ${bgSize}px`;
         wrapper.style.backgroundPosition = `${state.vw.x}px ${state.vw.y}px`;
     } else {
-        wrapper.style.backgroundImage = 'none';
+        if (wrapper.style.backgroundImage !== 'none') {
+            wrapper.style.backgroundImage = 'none';
+        }
     }
 }
 
@@ -3010,22 +3287,34 @@ function drawGridDimensions(ctx, cWidth, cHeight) {
     ctx.restore();
 }
 
+let visibilityCache = null;
+
 function isEntityVisible(ent) {
     if (!ent) return true;
+    
+    // Cache the DOM reads once per render frame
+    if (!visibilityCache) {
+        visibilityCache = {
+            structure: document.getElementById('vis-structure')?.checked ?? true,
+            supports: document.getElementById('vis-supports')?.checked ?? true,
+            loads: document.getElementById('vis-loads')?.checked ?? true,
+            dimensions: document.getElementById('vis-dimensions')?.checked ?? true,
+            annotations: document.getElementById('vis-annotations')?.checked ?? true
+        };
+    }
+
     const type = ent.type;
-    if (['beam', 'arc', 'parabola'].includes(type)) {
-        return document.getElementById('vis-structure')?.checked ?? true;
-    }
-    if (['pin', 'roller', 'fixed', 'slider', 'hinge', 'spring', 'rotspr'].includes(type)) {
-        return document.getElementById('vis-supports')?.checked ?? true;
-    }
-    if (['force', 'distload', 'moment'].includes(type)) {
-        return document.getElementById('vis-loads')?.checked ?? true;
-    }
-    return true; // dimension, text, etc
+    if (type === 'beam') return visibilityCache.structure;
+    if (['pin', 'roller', 'fixed', 'slider', 'hinge', 'spring', 'rotspr'].includes(type)) return visibilityCache.supports;
+    if (['force', 'distload', 'moment'].includes(type)) return visibilityCache.loads;
+    if (['dimension', 'angdim'].includes(type)) return visibilityCache.dimensions;
+    if (['line', 'arrow', 'textLabel', 'coordsys', 'image'].includes(type)) return visibilityCache.annotations;
+    
+    return true; // fallback
 }
 
 function render() {
+    visibilityCache = null; // reset cache for the new frame
     const cWidth = wrapper.clientWidth;
     const cHeight = wrapper.clientHeight;
     ctx.clearRect(0, 0, cWidth, cHeight);
@@ -3036,12 +3325,14 @@ function render() {
     ctx.scale(state.vw.z, state.vw.z);
 
     // Draw global Origin X/Y Axes lightly
-    ctx.beginPath();
-    ctx.moveTo(-100000, 0); ctx.lineTo(100000, 0);
-    ctx.moveTo(0, -100000); ctx.lineTo(0, 100000);
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.4)'; // Slate-400 with opacity
-    ctx.lineWidth = 1 / state.vw.z;
-    ctx.stroke();
+    if (state.showAxes !== false) {
+        ctx.beginPath();
+        ctx.moveTo(-100000, 0); ctx.lineTo(100000, 0);
+        ctx.moveTo(0, -100000); ctx.lineTo(0, 100000);
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.4)'; // Slate-400 with opacity
+        ctx.lineWidth = 1 / state.vw.z;
+        ctx.stroke();
+    }
 
     ctx.globalAlpha = styleSettings.opacity;
 
@@ -3079,18 +3370,29 @@ function render() {
         });
     }
 
+    // Draw calibration line
+    if (state.tool === 'calibrate' && state.calibratePoints && state.calibratePoints.length === 1) {
+        ctx.beginPath();
+        const cp = state.calibratePoints[0];
+        ctx.moveTo(cp.x, cp.y);
+        ctx.lineTo(state.cursorPt.x, state.cursorPt.y);
+        ctx.strokeStyle = '#ef4444'; 
+        ctx.lineWidth = 2 / state.vw.z;
+        ctx.setLineDash([5 / state.vw.z, 5 / state.vw.z]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
     // Draw FE Diagram overlays
     if (state.feResults && state.feResults.success && state.activeDiagram && typeof drawFEDiagrams === 'function') {
         drawFEDiagrams(ctx, state.feResults, state.activeDiagram, state.diagramScale, state.mouseWorldPos, state);
     }
 
     ctx.globalAlpha = 1.0;
-    ctx.restore();
 
     // Draw Ortho Tracking Line Guide
-    if (snapMode.trackRef && snapMode.trackAxis && ['force', 'moment', 'distload', 'pin', 'roller', 'fixed', 'slider', 'hinge', 'spring', 'rotspr', 'beam', 'arc', 'parabola', 'dimension'].includes(state.tool) && !state.isMovingEntity) {
+    if (snapMode.trackRef && snapMode.trackAxis && ['influence', 'force', 'moment', 'distload', 'pin', 'roller', 'fixed', 'slider', 'hinge', 'spring', 'rotspr', 'beam', 'dimension', 'chaindim'].includes(state.tool) && !state.isMovingEntity) {
         ctx.save();
-        ctx.setTransform(state.vw.z, 0, 0, state.vw.z, state.vw.x, state.vw.y);
         
         ctx.beginPath();
         ctx.moveTo(snapMode.trackRef.x, snapMode.trackRef.y);
@@ -3112,6 +3414,8 @@ function render() {
         
         ctx.restore();
     }
+
+    ctx.restore();
 
     // Draw ruler dimensions around GUI
     if (styleSettings.showGrid) {
@@ -3186,7 +3490,7 @@ function showMultiPickMenu(entities, x, y, callback) {
         item.appendChild(textSpan);
         
         const idSpan = document.createElement('span');
-        idSpan.className = 'text-xs text-slate-400 ml-3';
+        idSpan.className = 'text-xs text-slate-300 ml-3';
         idSpan.innerText = `id: ${ent.id}`;
         item.appendChild(idSpan);
         
@@ -3195,8 +3499,9 @@ function showMultiPickMenu(entities, x, y, callback) {
         item.addEventListener('click', (e) => {
             e.stopPropagation();
             menu.remove();
-            // Call the continuation of the select logic
-            callback(ent);
+            document.removeEventListener('mousedown', closeListener, true);
+            // Defer so the menu removal repaints before any blocking prompt() in the callback
+            setTimeout(() => callback(ent), 0);
         });
         
         // Highlight entity on hover
@@ -3242,6 +3547,51 @@ canvas.addEventListener('mousedown', (e) => {
     }
     if (e.button !== 0) return;
 
+    if (state.tool === 'calibrate') {
+        state.calibratePoints = state.calibratePoints || [];
+        state.calibratePoints.push(wPt);
+        if (state.calibratePoints.length === 2) {
+            const p1 = state.calibratePoints[0];
+            const p2 = state.calibratePoints[1];
+            const dCanvas = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+            const distStr = prompt('Enter the known physical distance between these two points (in meters):');
+            if (distStr !== null) {
+                const dReal = parseFloat(distStr.replace(',', '.'));
+                if (!isNaN(dReal) && dReal > 0 && dCanvas > 0) {
+                    // Convert dReal (meters) into world space units by multiplying with state.gridSize
+                    const scaleFactor = (dReal * state.gridSize) / dCanvas;
+                    const ent = state.entities.find(en => en.id === state.calibratingEntityId);
+                    if (ent && ent.type === 'image') {
+                        saveState();
+                        const w = ent.p2.x - ent.p1.x;
+                        const h = ent.p2.y - ent.p1.y;
+                        
+                        // Anchor scaling on the first clicked point (p1)
+                        const dx = p1.x - ent.p1.x;
+                        const dy = p1.y - ent.p1.y;
+                        
+                        ent.p1.x = p1.x - dx * scaleFactor;
+                        ent.p1.y = p1.y - dy * scaleFactor;
+                        
+                        ent.p2.x = ent.p1.x + w * scaleFactor;
+                        ent.p2.y = ent.p1.y + h * scaleFactor;
+                    }
+                } else {
+                    alert('Invalid distance. Calibration cancelled.');
+                }
+            }
+            state.tool = 'select';
+            state.calibratePoints = [];
+            state.calibratingEntityId = null;
+            wrapper.style.cursor = 'default';
+            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active-tool'));
+            const selectBtn = document.getElementById('tool-select');
+            if (selectBtn) selectBtn.classList.add('active-tool');
+        }
+        requestRedraw();
+        return;
+    }
+
     if (state.tool === 'select') {
         const handleRadius = 6 / state.vw.z;
         let gripClicked = null;
@@ -3262,6 +3612,19 @@ canvas.addEventListener('mousedown', (e) => {
             return;
         }
 
+        // Drag a value label (force / moment / distload text, angular dimension text)
+        for (let i = state.entities.length - 1; i >= 0; i--) {
+            const ent = state.entities[i];
+            const lb = ent._labelBounds;
+            if (lb && ['force', 'moment', 'distload', 'angdim'].includes(ent.type) &&
+                wPt.x >= lb.x && wPt.x <= lb.x + lb.w && wPt.y >= lb.y && wPt.y <= lb.y + lb.h) {
+                saveState();
+                state.isDraggingLabel = ent.id;
+                state.labelDragStart = { x: wPt.x, y: wPt.y, ox: ent.textOffset ? ent.textOffset.x : 0, oy: ent.textOffset ? ent.textOffset.y : 0 };
+                return;
+            }
+        }
+
         let hitEntities = [];
         for (let i = state.entities.length - 1; i >= 0; i--) {
             if (EntityLogic[state.entities[i].type].hitTest(wPt, state.entities[i])) {
@@ -3270,15 +3633,26 @@ canvas.addEventListener('mousedown', (e) => {
         }
         
         const applySelection = (clicked, startMove = true) => {
+            let idsToAdd = [clicked.id];
+            if (clicked.groupId) {
+                idsToAdd = state.entities.filter(e => e.groupId === clicked.groupId).map(e => e.id);
+            }
+
             if (e.ctrlKey) {
                 if (state.selectedIds.includes(clicked.id)) {
-                    state.selectedIds = state.selectedIds.filter(id => id !== clicked.id);
+                    state.selectedIds = state.selectedIds.filter(id => !idsToAdd.includes(id));
                 } else {
-                    state.selectedIds.push(clicked.id);
+                    idsToAdd.forEach(id => {
+                        if (!state.selectedIds.includes(id)) state.selectedIds.push(id);
+                    });
                 }
             } else {
                 if (!state.selectedIds.includes(clicked.id)) {
-                    state.selectedIds = [clicked.id];
+                    state.selectedIds = [...idsToAdd];
+                } else {
+                    idsToAdd.forEach(id => {
+                        if (!state.selectedIds.includes(id)) state.selectedIds.push(id);
+                    });
                 }
             }
             state.selectedEntityId = state.selectedIds.length > 0 ? state.selectedIds[state.selectedIds.length - 1] : null;
@@ -3327,11 +3701,20 @@ canvas.addEventListener('mousedown', (e) => {
             }
         }
         
+        // Ask which direction the moving unit load acts in: global vertical or perpendicular to the member it travels on
+        const askInfluenceLoadDir = () => {
+            const dir = prompt("Moving unit load direction:\nV = Global vertical (downwards)\nP = Perpendicular to the member", "V");
+            if (!dir) return null;
+            return dir.trim().toLowerCase().startsWith('p') ? 'perpendicular' : 'vertical';
+        };
+
         const handleInfluencePick = (clicked) => {
             const supportTypes = ['pin', 'roller', 'fixed', 'slider', 'hinge', 'spring', 'rotspr'];
             if (supportTypes.includes(clicked.type)) {
                 const component = prompt("Influence Line target: Support.\nWhich force component to track? (Type: Rx, Ry, or Mz)", "Ry");
-                if (component) runInfluenceLine(clicked, 'reaction', component.toLowerCase(), null);
+                if (!component) return;
+                const loadDir = askInfluenceLoadDir();
+                if (loadDir) runInfluenceLine(clicked, 'reaction', component.toLowerCase(), null, loadDir);
             } else if (clicked.type === 'beam') {
                 const dx = clicked.p2.x - clicked.p1.x;
                 const dy = clicked.p2.y - clicked.p1.y;
@@ -3344,7 +3727,9 @@ canvas.addEventListener('mousedown', (e) => {
                 
                 const ratioDisplay = (ratio * 100).toFixed(1) + "%";
                 const component = prompt(`Influence Line target: Beam (at ${ratioDisplay} length).\nWhich internal force to track? (Type: V or M)`, "M");
-                if (component) runInfluenceLine(clicked, 'internal', component.toLowerCase(), ratio);
+                if (!component) return;
+                const loadDir = askInfluenceLoadDir();
+                if (loadDir) runInfluenceLine(clicked, 'internal', component.toLowerCase(), ratio, loadDir);
             } else {
                 alert("Please click on a Support or a Beam to target an influence line.");
             }
@@ -3361,13 +3746,13 @@ canvas.addEventListener('mousedown', (e) => {
     }
 
     // Multi-click tools
-    if (['beam', 'arc', 'parabola', 'distload', 'dimension', 'angdim', 'line', 'arrow'].includes(state.tool)) {
+    if (['beam', 'distload', 'dimension', 'chaindim', 'angdim', 'line', 'arrow', 'arrayload'].includes(state.tool)) {
         if (state.drawingStep === 0) {
             saveState();
             state.drawingStep = 1;
             state.tempEntity = {
                 id: generateId(),
-                type: state.tool,
+                type: state.tool === 'chaindim' ? 'dimension' : state.tool,
                 p1: snap(wPt),
                 p2: snap(wPt),
                 p3: snap(wPt),
@@ -3380,7 +3765,7 @@ canvas.addEventListener('mousedown', (e) => {
             snapMode.trackRef = { ...state.tempEntity.p1 };
             snapMode.trackAxis = null;
             
-            if (state.tool === 'beam') {
+            if (['beam', 'distload', 'dimension', 'arrayload'].includes(state.tool)) {
                 const lp = document.getElementById('cad-input-panel');
                 const inp = document.getElementById('cad-input');
                 document.getElementById('cad-input-label').innerText = 'Length';
@@ -3391,22 +3776,40 @@ canvas.addEventListener('mousedown', (e) => {
             }
         } else if (state.drawingStep === 1) {
             if (dist(state.tempEntity.p1, state.tempEntity.p2) > 0) {
-                if (['dimension', 'arc', 'parabola', 'angdim'].includes(state.tool)) {
+                if (['dimension', 'chaindim', 'angdim'].includes(state.tool)) {
                     state.drawingStep = 2;
                     state.tempEntity.p3 = wPt;
-                    
-                    if (state.tool === 'arc') {
-                        const lp = document.getElementById('cad-input-panel');
-                        const inp = document.getElementById('cad-input');
-                        document.getElementById('cad-input-label').innerText = 'Radius';
-                        lp.classList.remove('hidden');
-                        inp.value = '';
-                        setTimeout(() => inp.focus(), 10);
-                    }
                 } else {
-                    state.entities.push({...state.tempEntity});
-                    state.selectedIds = [state.tempEntity.id];
-                    state.selectedEntityId = state.tempEntity.id;
+                    if (state.tool === 'arrayload') {
+                        const pt1 = state.tempEntity.p1;
+                        const pt2 = state.tempEntity.p2;
+                        const count = state.arrayLoadCount || 5;
+                        const dx = (pt2.x - pt1.x);
+                        const dy = (pt2.y - pt1.y);
+                        const groupId = 'group_' + generateId();
+                        state.selectedIds = [];
+                        for (let i = 0; i < count; i++) {
+                            const px = pt1.x + dx * i;
+                            const py = pt1.y + dy * i;
+                            const visualLen = 40 / state.vw.z;
+                            const newForce = {
+                                id: generateId(),
+                                type: 'force',
+                                p2: { x: px, y: py },
+                                p1: { x: px, y: py - visualLen },
+                                angle: Math.PI / 2,
+                                magnitude: '10',
+                                groupId: groupId
+                            };
+                            state.entities.push(newForce);
+                            state.selectedIds.push(newForce.id);
+                        }
+                        state.selectedEntityId = state.selectedIds[state.selectedIds.length - 1];
+                    } else {
+                        state.entities.push({...state.tempEntity});
+                        state.selectedIds = [state.tempEntity.id];
+                        state.selectedEntityId = state.tempEntity.id;
+                    }
                     state.tempEntity = null;
                     state.drawingStep = 0;
                     document.getElementById('cad-input-panel').classList.add('hidden');
@@ -3420,8 +3823,8 @@ canvas.addEventListener('mousedown', (e) => {
                 document.getElementById('cad-input-panel').classList.add('hidden');
                 document.querySelector(`.tool-btn[data-tool="select"]`).click();
             }
-        } else if (state.drawingStep === 2 && ['dimension', 'arc', 'parabola', 'angdim'].includes(state.tool)) {
-            if (state.tool === 'dimension') {
+        } else if (state.drawingStep === 2 && ['dimension', 'chaindim', 'angdim'].includes(state.tool)) {
+            if (state.tool === 'dimension' || state.tool === 'chaindim') {
                 let snappedPt = null;
                 let minDistDim = Infinity;
                 
@@ -3458,6 +3861,36 @@ canvas.addEventListener('mousedown', (e) => {
                 }
                 
                 state.tempEntity.p3 = snappedPt;
+                
+                if (state.tool === 'chaindim') {
+                    const groupId = 'group_' + generateId();
+                    state.tempEntity.groupId = groupId;
+                    
+                    const dx = state.tempEntity.p2.x - state.tempEntity.p1.x;
+                    const dy = state.tempEntity.p2.y - state.tempEntity.p1.y;
+                    const len = Math.hypot(dx, dy);
+                    let offset = 40;
+                    if (len > 0) {
+                        const nx = -dy / len;
+                        const ny = dx / len;
+                        offset = (state.tempEntity.p3.x - state.tempEntity.p1.x) * nx + (state.tempEntity.p3.y - state.tempEntity.p1.y) * ny;
+                    }
+                    
+                    state.chainDimGroupId = groupId;
+                    state.chainDimOffset = offset;
+                    state.entities.push({...state.tempEntity});
+                    
+                    state.tempEntity = {
+                        id: generateId(),
+                        type: 'dimension',
+                        p1: {...state.tempEntity.p2},
+                        p2: snap(wPt),
+                        groupId: groupId
+                    };
+                    state.drawingStep = 3;
+                    requestRedraw();
+                    return;
+                }
             } else {
                 state.tempEntity.p3 = state.tool === 'angdim' ? snap(wPt) : wPt;
             }
@@ -3469,6 +3902,34 @@ canvas.addEventListener('mousedown', (e) => {
             document.getElementById('cad-input-panel').classList.add('hidden');
             document.querySelector(`.tool-btn[data-tool="select"]`).click();
             updatePropertyPanel();
+        } else if (state.drawingStep === 3 && state.tool === 'chaindim') {
+            state.tempEntity.p2 = snap(wPt);
+            
+            const dx = state.tempEntity.p2.x - state.tempEntity.p1.x;
+            const dy = state.tempEntity.p2.y - state.tempEntity.p1.y;
+            const len = Math.hypot(dx, dy);
+            if (len > 0) {
+                const nx = -dy / len;
+                const ny = dx / len;
+                state.tempEntity.p3 = {
+                    x: state.tempEntity.p1.x + state.chainDimOffset * nx,
+                    y: state.tempEntity.p1.y + state.chainDimOffset * ny
+                };
+            }
+            
+            if (dist(state.tempEntity.p1, state.tempEntity.p2) > 0) {
+                state.entities.push({...state.tempEntity});
+            }
+            
+            // Re-initialize for the next potential point
+            state.tempEntity = {
+                id: generateId(),
+                type: 'dimension',
+                p1: {...state.tempEntity.p2},
+                p2: snap(wPt),
+                groupId: state.chainDimGroupId
+            };
+            // Stay in drawingStep = 3
         }
         requestRedraw();
         return;
@@ -3537,6 +3998,22 @@ window.addEventListener('mousemove', (e) => {
     const wPt = s2w({ x: screenX, y: screenY });
     state.cursorPt = snap(wPt);
 
+    if (state.tool === 'calibrate' && state.calibratePoints && state.calibratePoints.length === 1) {
+        requestRedraw();
+    }
+
+    if (state.isDraggingLabel) {
+        const ent = state.entities.find(en => en.id === state.isDraggingLabel);
+        if (ent) {
+            ent.textOffset = {
+                x: state.labelDragStart.ox + (wPt.x - state.labelDragStart.x),
+                y: state.labelDragStart.oy + (wPt.y - state.labelDragStart.y)
+            };
+            requestRedraw();
+        }
+        return;
+    }
+
     if (state.isDraggingGrip && state.selectedEntityId) {
         const ent = state.entities.find(e => e.id === state.selectedEntityId);
         if (ent) {
@@ -3590,7 +4067,7 @@ window.addEventListener('mousemove', (e) => {
     // Update drawing tool preview
     if (state.drawingStep === 1 && state.tempEntity) {
         state.tempEntity.p2 = snap(wPt);
-        if (['dimension', 'arc', 'parabola', 'angdim'].includes(state.tempEntity.type)) {
+        if (['dimension', 'angdim'].includes(state.tempEntity.type)) {
             state.tempEntity.p3 = snap(wPt);
         }
         
@@ -3602,7 +4079,7 @@ window.addEventListener('mousemove', (e) => {
             }
         }
         requestRedraw();
-    } else if (state.drawingStep === 2 && state.tempEntity && ['dimension', 'arc', 'parabola', 'angdim'].includes(state.tempEntity.type)) {
+    } else if (state.drawingStep === 2 && state.tempEntity && ['dimension', 'angdim'].includes(state.tempEntity.type)) {
         if (state.tempEntity.type === 'dimension') {
             let snappedPt = null;
             let minDistDim = Infinity;
@@ -3648,26 +4125,19 @@ window.addEventListener('mousemove', (e) => {
             state.tempEntity.magnitude = dist(state.tempEntity.p1, state.tempEntity.p3); 
         }
 
-        if (state.tempEntity.type === 'arc') {
-            const pt1 = state.tempEntity.p1;
-            const pt2 = state.tempEntity.p2;
-            const dx = pt2.x - pt1.x;
-            const dy = pt2.y - pt1.y;
-            const L = Math.hypot(dx, dy);
-            
-            const nx = -dy / L;
-            const ny = dx / L;
-            const mx = (pt1.x + pt2.x) / 2;
-            const my = (pt1.y + pt2.y) / 2;
-            const h = (state.tempEntity.p3.x - mx) * nx + (state.tempEntity.p3.y - my) * ny;
-            
-            if (Math.abs(h) > 1e-3) {
-                const R = Math.abs((L * L) / (8 * h) + h / 2) / state.gridSize;
-                const inp = document.getElementById('cad-input');
-                if (document.activeElement !== inp || inp.value === '') {
-                    inp.placeholder = R.toFixed(2);
-                }
-            }
+        requestRedraw();
+    } else if (state.drawingStep === 3 && state.tool === 'chaindim' && state.tempEntity) {
+        state.tempEntity.p2 = snap(wPt);
+        const dx = state.tempEntity.p2.x - state.tempEntity.p1.x;
+        const dy = state.tempEntity.p2.y - state.tempEntity.p1.y;
+        const len = Math.hypot(dx, dy);
+        if (len > 0) {
+            const nx = -dy / len;
+            const ny = dx / len;
+            state.tempEntity.p3 = {
+                x: state.tempEntity.p1.x + state.chainDimOffset * nx,
+                y: state.tempEntity.p1.y + state.chainDimOffset * ny
+            };
         }
         requestRedraw();
     } else {
@@ -3727,6 +4197,19 @@ window.addEventListener('mouseup', (e) => {
             state.selectedIds = selectedNew;
         }
         
+        let expandedSelection = [...state.selectedIds];
+        state.selectedIds.forEach(id => {
+            const ent = state.entities.find(e => e.id === id);
+            if (ent && ent.groupId) {
+                state.entities.forEach(e => {
+                    if (e.groupId === ent.groupId && !expandedSelection.includes(e.id)) {
+                        expandedSelection.push(e.id);
+                    }
+                });
+            }
+        });
+        state.selectedIds = expandedSelection;
+        
         state.selectedEntityId = state.selectedIds.length > 0 ? state.selectedIds[state.selectedIds.length - 1] : null;
         
         state.isBoxSelecting = false;
@@ -3743,6 +4226,10 @@ window.addEventListener('mouseup', (e) => {
     }
     if (state.isDraggingGrip) {
         state.isDraggingGrip = null;
+    }
+    if (state.isDraggingLabel) {
+        state.isDraggingLabel = null;
+        state.labelDragStart = null;
     }
 });
 
@@ -3774,19 +4261,53 @@ canvas.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 // Init setup
+populateProfileDropdown('prop-section-profile');
 resize();
 saveState();
 
 // -------- Influence Line Logic --------
-function runInfluenceLine(targetEnt, type, component, ratio) {
+function runInfluenceLine(targetEnt, type, component, ratio, loadDir = 'vertical') {
     if (typeof buildFEModel !== 'function' || typeof solveFEModel !== 'function') {
         alert("Solver not built/loaded."); return;
     }
     const STEPS = 1000;
     const influenceData = [];
     const pointsData = [];
-    const walkableSegments = state.entities.filter(e => e.type === 'beam');
-    if (walkableSegments.length === 0) return;
+    
+    // Extract only the physically connected structure for the moving unit load
+    const allBeams = state.entities.filter(e => e.type === 'beam');
+    const distToSeg = (p, a, b) => {
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const L2 = dx * dx + dy * dy;
+        if (L2 < 1e-9) return Math.hypot(p.x - a.x, p.y - a.y);
+        let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / L2;
+        t = Math.max(0, Math.min(1, t));
+        return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+    };
+    let walkableSegments = [];
+    let knownPoints = [targetEnt.p1];
+    if (targetEnt.p2) knownPoints.push(targetEnt.p2);
+
+    let added;
+    do {
+        added = false;
+        for (let b of allBeams) {
+            if (!walkableSegments.includes(b)) {
+                // Connected if an endpoint touches a known point, or a known point lies mid-segment (e.g. support under a continuous beam)
+                const connected = knownPoints.some(p => distToSeg(p, b.p1, b.p2) < 5);
+                if (connected) {
+                    walkableSegments.push(b);
+                    knownPoints.push(b.p1, b.p2);
+                    added = true;
+                }
+            }
+        }
+    } while (added);
+
+    if (walkableSegments.length === 0) {
+        alert("No beam is connected to the selected target — the unit load has no path to travel on.");
+        return;
+    }
 
     let totalLength = 0;
     walkableSegments.forEach(b => {
@@ -3794,33 +4315,45 @@ function runInfluenceLine(targetEnt, type, component, ratio) {
         totalLength += b._len;
     });
 
-    for (let i = 0; i <= STEPS; i++) {
-        const targetL = (i / STEPS) * totalLength;
-        let point = null;
-        let accumL = 0;
-        for (let b of walkableSegments) {
-            if (targetL >= accumL && targetL <= accumL + b._len + 1e-6) {
-                const r = (targetL - accumL) / b._len;
-                point = {
-                    x: b.p1.x + (b.p2.x - b.p1.x) * r,
-                    y: b.p1.y + (b.p2.y - b.p1.y) * r
-                };
-                break;
-            }
-            accumL += b._len;
+    // Sample each member separately (including both of its ends) so every member gets its own
+    // diagram run - values can jump at joints (e.g. when the load direction changes at a frame corner)
+    const samples = [];
+    walkableSegments.forEach((b, segIdx) => {
+        if (b._len < 1e-9) return;
+        const n = Math.max(2, Math.round(STEPS * b._len / totalLength));
+        for (let k = 0; k <= n; k++) {
+            const r = k / n;
+            samples.push({
+                point: { x: b.p1.x + (b.p2.x - b.p1.x) * r, y: b.p1.y + (b.p2.y - b.p1.y) * r },
+                seg: b,
+                segIdx
+            });
         }
+    });
+    const segIdxData = [];
 
-        if (!point) continue;
+    for (const { point, seg, segIdx } of samples) {
+        segIdxData.push(segIdx);
+
+        // Unit load direction in canvas space (y down). Default: global vertical, pointing down.
+        let lx = 0, ly = 1;
+        if (loadDir === 'perpendicular' && seg && seg._len > 1e-9) {
+            const ux = (seg.p2.x - seg.p1.x) / seg._len;
+            const uy = (seg.p2.y - seg.p1.y) / seg._len;
+            lx = -uy; ly = ux;
+            // Orient the normal so it points downwards (or to the right on vertical members)
+            if (ly < -1e-9 || (Math.abs(ly) <= 1e-9 && lx < 0)) { lx = -lx; ly = -ly; }
+        }
 
         const baseEnts = state.entities.filter(e => !['force', 'distload', 'moment'].includes(e.type));
         baseEnts.push({
             id: 'inf-load',
             type: 'force',
-            p1: { x: point.x, y: point.y - state.gridSize }, 
+            p1: { x: point.x - lx * state.gridSize, y: point.y - ly * state.gridSize }, 
             p2: point, // Force is applied at tip (p2) in this app
             magnitude: 1, 
             unit: '',
-            angle: Math.PI / 2
+            angle: Math.atan2(ly, lx)
         });
 
         const model = buildFEModel(baseEnts, state.gridSize);
@@ -3891,21 +4424,33 @@ function runInfluenceLine(targetEnt, type, component, ratio) {
         pointsData.push(point);
     }
     
+    // Diagram offset direction per member, independent of the direction the member was drawn in:
+    // positive values are plotted upwards (or to the left on vertical members)
+    const segNormals = walkableSegments.map(b => {
+        if (!(b._len > 1e-9)) return { x: 0, y: -1 };
+        let nx = -(b.p2.y - b.p1.y) / b._len;
+        let ny = (b.p2.x - b.p1.x) / b._len;
+        if (ny > 1e-9 || (Math.abs(ny) <= 1e-9 && nx > 0)) { nx = -nx; ny = -ny; }
+        return { x: nx, y: ny };
+    });
+
     state.activeDiagram = 'influence';
     state.feResults = {
         success: true,
         isInfluence: true,
         influencePoints: pointsData,
         influenceValues: influenceData,
-        infTarget: { type, component, entity: targetEnt }
+        influenceSegs: segIdxData,
+        influenceSegNormals: segNormals,
+        infTarget: { type, component, entity: targetEnt, loadDir }
     };
     
     document.getElementById('results-panel').classList.remove('hidden');
+    setResultsMode('influence');
     document.querySelectorAll('.diagram-toggle-btn').forEach(b => {
         b.classList.remove('bg-indigo-600', 'text-white');
         if (b.dataset.diagram === 'influence') {
             b.classList.add('bg-indigo-600', 'text-white');
-            b.classList.remove('hidden');
         } else {
             b.classList.add('bg-slate-100', 'text-slate-600');
         }
@@ -3919,4 +4464,36 @@ function runInfluenceLine(targetEnt, type, component, ratio) {
     
     console.log("Influence Line calculated! Total points:", pointsData.length, "Vals:", influenceData);
     requestRedraw();
+}
+
+
+// Sidebar Drag to Resize functionality
+const sidebarEl = document.getElementById('left-sidebar');
+const resizerEl = document.getElementById('sidebar-resizer');
+let isResizingSidebar = false;
+
+if (sidebarEl && resizerEl) {
+    resizerEl.addEventListener('mousedown', (e) => {
+        isResizingSidebar = true;
+        document.body.style.cursor = 'col-resize';
+        e.preventDefault();
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizingSidebar) return;
+        const newWidth = Math.max(160, Math.min(e.clientX, 600));
+        sidebarEl.style.width = newWidth + 'px';
+        let scale = newWidth / 192;
+        sidebarEl.style.setProperty('--icon-size', Math.max(20, Math.min(64, Math.round(24 * scale))) + 'px');
+        sidebarEl.style.setProperty('--icon-font', Math.max(10, Math.min(18, Math.round(10 * scale))) + 'px');
+        if (typeof resize === 'function') resize();
+    });
+    
+    document.addEventListener('mouseup', () => {
+        if (isResizingSidebar) {
+            isResizingSidebar = false;
+            document.body.style.cursor = '';
+            if (typeof resize === 'function') resize(); // trigger canvas resize to fit new space
+        }
+    });
 }
